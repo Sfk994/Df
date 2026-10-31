@@ -155,3 +155,80 @@ local aimbotConnection = RunService.RenderStepped:Connect(function()
 end)
 
 -- ==========================
+-- ==========================================
+-- UI 按钮
+-- ==========================================
+local espBtn = Instance.new("TextButton", main)
+espBtn.Size = UDim2.new(1, -20, 0, 45)
+espBtn.Position = UDim2.new(0, 10, 0, 50)
+espBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+espBtn.Text = "玩家高光 (ESP) [关]"
+espBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+espBtn.Font = Enum.Font.Gotham
+espBtn.TextSize = 14
+Instance.new("UICorner", espBtn).CornerRadius = UDim.new(0, 4)
+
+local aimBtn = Instance.new("TextButton", main)
+aimBtn.Size = UDim2.new(1, -20, 0, 45)
+aimBtn.Position = UDim2.new(0, 10, 0, 105)
+aimBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+aimBtn.Text = "自动瞄准 (Aimbot) [关]"
+aimBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+aimBtn.Font = Enum.Font.Gotham
+aimBtn.TextSize = 14
+Instance.new("UICorner", aimBtn).CornerRadius = UDim.new(0, 4)
+
+-- 按钮点击事件
+espBtn.MouseButton1Click:Connect(function()
+    espEnabled = not espEnabled
+    espBtn.BackgroundColor3 = espEnabled and Color3.fromRGB(0, 150, 80) or Color3.fromRGB(50, 50, 50)
+    espBtn.Text = espEnabled and "玩家高光 (ESP) [开]" or "玩家高光 (ESP) [关]"
+    updateESP()
+end)
+
+aimBtn.MouseButton1Click:Connect(function()
+    aimbotEnabled = not aimbotEnabled
+    aimBtn.BackgroundColor3 = aimbotEnabled and Color3.fromRGB(0, 150, 80) or Color3.fromRGB(50, 50, 50)
+    aimBtn.Text = aimbotEnabled and "自动瞄准 (Aimbot) [开]" or "自动瞄准 (Aimbot) [关]"
+end)
+
+-- ==========================================
+-- 关闭与清理逻辑
+-- ==========================================
+local function cleanup()
+    espEnabled = false
+    aimbotEnabled = false
+    if aimbotConnection then aimbotConnection:Disconnect() end
+    for char, hl in pairs(activeHighlights) do
+        if hl then hl:Destroy() end
+    end
+    gui:Destroy()
+end
+
+closeBtn.MouseButton1Click:Connect(cleanup)
+
+-- 死亡时自动关闭自瞄（防止复活后视角乱飞）
+LocalPlayer.CharacterAdded:Connect(function()
+    if aimbotEnabled then
+        aimbotEnabled = false
+        aimBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        aimBtn.Text = "自动瞄准 (Aimbot) [关]"
+    end
+end)
+
+-- 拖拽逻辑
+local drag, dragStart, startPos
+top.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        drag = true; dragStart = input.Position; startPos = main.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then drag = false end
+        end)
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if drag and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+        main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
