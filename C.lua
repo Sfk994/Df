@@ -208,12 +208,12 @@ MainTab:Toggle({
 
 HushTab:Toggle({
     Title = "透视",
-    Desc = "开启时加载功能C，关闭时停止",
+    Desc = "开启时加载透视，关闭时停止",
     Default = false,
     Callback = function(state)
         if state then
             -- ⚠️ 开启时的操作：加载功能C
-            local url = "https://raw.githubusercontent.com/你的用户名/你的仓库/main/功能C.lua?v=1"
+            local url = "https://raw.githubusercontent.com/Sfk994/Df/refs/heads/main/tous.lua"
             
             if not string.find(url, "你的用户名") then
                 task.spawn(function()
@@ -227,19 +227,19 @@ HushTab:Toggle({
         else
             -- ⚠️ 关闭时的操作：如果是循环类功能，你需要在这里写停止逻辑，或者直接重载一个清理脚本
             -- 例如: loadstring(game:HttpGet("关闭清理C的链接"))()
-            print("功能C 已关闭")
+            print("透视C 已关闭")
         end
     end
 })
 
 HushTab:Toggle({
     Title = "描边",
-    Desc = "开启时加载功能C，关闭时停止",
+    Desc = "开启时描边，关闭时停止",
     Default = false,
     Callback = function(state)
         if state then
             -- ⚠️ 开启时的操作：加载功能C
-            local url = "https://raw.githubusercontent.com/你的用户名/你的仓库/main/功能C.lua?v=1"
+            local url = "https://raw.githubusercontent.com/Sfk994/Df/refs/heads/main/miaoben.lua"
             
             if not string.find(url, "你的用户名") then
                 task.spawn(function()
@@ -253,7 +253,7 @@ HushTab:Toggle({
         else
             -- ⚠️ 关闭时的操作：如果是循环类功能，你需要在这里写停止逻辑，或者直接重载一个清理脚本
             -- 例如: loadstring(game:HttpGet("关闭清理C的链接"))()
-            print("功能C 已关闭")
+            print("描边 已关闭")
         end
     end
 })
