@@ -1,5 +1,5 @@
 -- ==========================================
--- Havvk科技 | 高级透视与智能吸附自瞄 (全局不闪烁版)
+-- Havvk科技 | 高级透视与智能吸附自瞄 (全局不闪烁版67)
 -- ==========================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
