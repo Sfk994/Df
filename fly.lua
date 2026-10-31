@@ -1,13 +1,12 @@
 -- ==========================================
--- Havvk科技 | 极简飞行模块 (防卡死兼容版)
+-- Havvk科技 | 极简飞行模块 (方向修正完美版)
 -- ==========================================
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui") -- 使用 PlayerGui 绝对安全，不会报错
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
--- 防止重复加载
 if PlayerGui:FindFirstChild("Havvk_FlyModule") then
     PlayerGui:FindFirstChild("Havvk_FlyModule"):Destroy()
 end
@@ -17,7 +16,6 @@ screenGui.Name = "Havvk_FlyModule"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = PlayerGui
 
--- 主界面
 local mainFrame = Instance.new("Frame")
 mainFrame.Size = UDim2.new(0, 240, 0, 180)
 mainFrame.Position = UDim2.new(0.5, -120, 0.5, -90)
@@ -31,7 +29,6 @@ local corner = Instance.new("UICorner")
 corner.CornerRadius = UDim.new(0, 6)
 corner.Parent = mainFrame
 
--- 标题栏
 local topBar = Instance.new("Frame")
 topBar.Size = UDim2.new(1, 0, 0, 35)
 topBar.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
@@ -49,7 +46,6 @@ title.Font = Enum.Font.GothamBold
 title.TextSize = 14
 title.Parent = topBar
 
--- 关闭按钮
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 35, 0, 35)
 closeBtn.Position = UDim2.new(1, -35, 0, 0)
@@ -60,16 +56,15 @@ closeBtn.Font = Enum.Font.GothamBold
 closeBtn.TextSize = 14
 closeBtn.Parent = topBar
 
--- 飞行逻辑变量
 local flying = false
 local flySpeed = 50
-local bv, bg
+local velocity, align
 local RenderConnection
 
 local function stopFlying()
     flying = false
-    if bv then bv:Destroy() bv = nil end
-    if bg then bg:Destroy() bg = nil end
+    if velocity then velocity:Destroy() velocity = nil end
+    if align then align:Destroy() align = nil end
     if RenderConnection then RenderConnection:Disconnect() RenderConnection = nil end
 end
 
@@ -78,7 +73,6 @@ closeBtn.MouseButton1Click:Connect(function()
     screenGui:Destroy()
 end)
 
--- UI 功能组件
 local toggleBtn = Instance.new("TextButton")
 toggleBtn.Size = UDim2.new(1, -20, 0, 45)
 toggleBtn.Position = UDim2.new(0, 10, 0, 45)
@@ -107,7 +101,6 @@ local labelCorner = Instance.new("UICorner")
 labelCorner.CornerRadius = UDim.new(0, 4)
 labelCorner.Parent = speedLabel
 
--- 减号按钮
 local minusBtn = Instance.new("TextButton")
 minusBtn.Size = UDim2.new(0, 40, 0, 30)
 minusBtn.Position = UDim2.new(0, 10, 0, 140)
@@ -122,7 +115,6 @@ local minusCorner = Instance.new("UICorner")
 minusCorner.CornerRadius = UDim.new(0, 4)
 minusCorner.Parent = minusBtn
 
--- 加号按钮
 local plusBtn = Instance.new("TextButton")
 plusBtn.Size = UDim2.new(0, 40, 0, 30)
 plusBtn.Position = UDim2.new(1, -50, 0, 140)
@@ -137,7 +129,6 @@ local plusCorner = Instance.new("UICorner")
 plusCorner.CornerRadius = UDim.new(0, 4)
 plusCorner.Parent = plusBtn
 
--- 加减速逻辑
 minusBtn.MouseButton1Click:Connect(function()
     if flySpeed > 10 then
         flySpeed = flySpeed - 10
@@ -152,16 +143,19 @@ plusBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- 开关逻辑
 toggleBtn.MouseButton1Click:Connect(function()
     flying = not flying
     
     if flying then
+        local char = LocalPlayer.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then 
+            flying = false
+            return 
+        end
+        
         toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 80)
         toggleBtn.Text = "开启飞行 [开]"
         
-        local char = LocalPlayer.Character
-        if not char or not char:FindFirstChild("HumanoidRootPart") then return end
         local hrp = char.HumanoidRootPart
         
-        -- 兼容性处理：Bo
+        velocity = Instance.new("Lin
