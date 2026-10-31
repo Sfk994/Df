@@ -21,6 +21,11 @@ local MainTab = Window:Tab({
     Icon = "home",
 })
 
+local HushTab = Window:Tab({
+    Title = "Hush",
+    Icon = "home",
+})
+
 local SettingTab = Window:Tab({
     Title = "设置",
     Icon = "settings",
@@ -200,6 +205,59 @@ MainTab:Toggle({
         end
     end
 })
+
+HushTab:Toggle({
+    Title = "透视",
+    Desc = "开启时加载功能C，关闭时停止",
+    Default = false,
+    Callback = function(state)
+        if state then
+            -- ⚠️ 开启时的操作：加载功能C
+            local url = "https://raw.githubusercontent.com/你的用户名/你的仓库/main/功能C.lua?v=1"
+            
+            if not string.find(url, "你的用户名") then
+                task.spawn(function()
+                    pcall(function()
+                        loadstring(game:HttpGet(url))()
+                    end)
+                end)
+            else
+                WindUI:Notify({Title="提示", Content="功能C链接尚未配置", Duration=3})
+            end
+        else
+            -- ⚠️ 关闭时的操作：如果是循环类功能，你需要在这里写停止逻辑，或者直接重载一个清理脚本
+            -- 例如: loadstring(game:HttpGet("关闭清理C的链接"))()
+            print("功能C 已关闭")
+        end
+    end
+})
+
+HushTab:Toggle({
+    Title = "描边",
+    Desc = "开启时加载功能C，关闭时停止",
+    Default = false,
+    Callback = function(state)
+        if state then
+            -- ⚠️ 开启时的操作：加载功能C
+            local url = "https://raw.githubusercontent.com/你的用户名/你的仓库/main/功能C.lua?v=1"
+            
+            if not string.find(url, "你的用户名") then
+                task.spawn(function()
+                    pcall(function()
+                        loadstring(game:HttpGet(url))()
+                    end)
+                end)
+            else
+                WindUI:Notify({Title="提示", Content="功能C链接尚未配置", Duration=3})
+            end
+        else
+            -- ⚠️ 关闭时的操作：如果是循环类功能，你需要在这里写停止逻辑，或者直接重载一个清理脚本
+            -- 例如: loadstring(game:HttpGet("关闭清理C的链接"))()
+            print("功能C 已关闭")
+        end
+    end
+})
+
 
 -- ==========================================
 -- 设置页：重载 UI
