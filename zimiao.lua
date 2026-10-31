@@ -1,5 +1,5 @@
 -- ==========================================
--- Havvk科技 | 高级透视与自瞄模块 (居中/刷新/变速)
+-- Havvk科技 | 高级透视与自瞄模块 (居中/刷新/变速
 -- ==========================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
