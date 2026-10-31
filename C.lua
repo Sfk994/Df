@@ -30,11 +30,11 @@ local SettingTab = Window:Tab({
 -- 模块 1：按钮形式加载
 -- ==========================================
 MainTab:Button({
-    Title = "加载功能 A",
-    Desc = "点击运行独立的功能脚本 A",
+    Title = "飞行",
+    Desc = "点击运行飞行",
     Callback = function()
         -- ⚠️ 预留位置：把你分开做的功能A的 Raw 链接填到这里
-        local url = "https://raw.githubusercontent.com/你的用户名/你的仓库/main/功能A.lua?v=1"
+        local url = "https://raw.githubusercontent.com/Sfk994/Df/fa4b0de03eb5bed520bf7a955f1fec662a92b2ba/fly.lua"
         
         -- 如果链接还没做好，先弹个提示
         if string.find(url, "你的用户名") then
@@ -49,7 +49,7 @@ MainTab:Button({
             if not success then
                 WindUI:Notify({
                     Title = "加载失败",
-                    Content = "功能A加载出错: " .. tostring(err),
+                    Content = "功能加载出错: " .. tostring(err),
                     Duration = 5,
                 })
             end
