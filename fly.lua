@@ -1,6 +1,7 @@
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 5)
 if not PlayerGui then return end
@@ -14,10 +15,10 @@ gui.Name = "Havvk_FlyModule"
 gui.ResetOnSpawn = false
 gui.Parent = PlayerGui
 
--- 主界面加高到 280
+-- 主界面
 local main = Instance.new("Frame")
-main.Size = UDim2.new(0, 240, 0, 280)
-main.Position = UDim2.new(0.5, -120, 0.5, -140)
+main.Size = UDim2.new(0, 240, 0, 290)
+main.Position = UDim2.new(0.5, -120, 0.5, -145)
 main.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 main.BorderSizePixel = 0
 main.ClipsDescendants = true
@@ -35,7 +36,7 @@ local title = Instance.new("TextLabel", top)
 title.Size = UDim2.new(1, -40, 1, 0)
 title.Position = UDim2.new(0, 10, 0, 0)
 title.BackgroundTransparency = 1
-title.Text = " 飞行模块 (垂直版)"
+title.Text = " 飞行模块 (瞬移版)"
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Font = Enum.Font.GothamBold
@@ -52,27 +53,29 @@ closeBtn.TextSize = 14
 
 local flying, isNoclip = false, false
 local flySpeed = 50
-local verticalSpeed = 0
 local bv, renderConn
 
--- 恢复碰撞和物理属性
-local function restoreCollision()
+-- 关闭碰撞并设置悬浮状态
+local function setNoclipState(state)
     if LocalPlayer.Character then
         for _, v in pairs(LocalPlayer.Character:GetDescendants()) do
             if v:IsA("BasePart") then
-                v.CanCollide = true
-                v.Massless = false
+                v.CanCollide = not state
             end
+        end
+        local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
+        if humanoid then
+            -- 开启飞行时强制悬浮，防止物理引擎卡住角色
+            humanoid.PlatformStand = state
         end
     end
 end
 
 local function stopFly()
     flying = false
-    verticalSpeed = 0
     if bv then bv:Destroy() bv = nil end
     if renderConn then renderConn:Disconnect() renderConn = nil end
-    restoreCollision()
+    setNoclipState(false)
 end
 
 closeBtn.MouseButton1Click:Connect(function()
@@ -102,14 +105,12 @@ noclipBtn.Font = Enum.Font.Gotham
 noclipBtn.TextSize = 14
 Instance.new("UICorner", noclipBtn).CornerRadius = UDim.new(0, 4)
 
--- =======================
--- 上下移动按钮 (按住生效)
--- =======================
+-- 上下瞬移按钮
 local upBtn = Instance.new("TextButton", main)
 upBtn.Size = UDim2.new(0.5, -15, 0, 40)
 upBtn.Position = UDim2.new(0, 10, 0, 140)
 upBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-upBtn.Text = "↑ 上升"
+upBtn.Text = "↑ 向上瞬移"
 upBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 upBtn.Font = Enum.Font.GothamBold
 upBtn.TextSize = 14
@@ -119,13 +120,13 @@ local downBtn = Instance.new("TextButton", main)
 downBtn.Size = UDim2.new(0.5, -15, 0, 40)
 downBtn.Position = UDim2.new(0.5, 5, 0, 140)
 downBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-downBtn.Text = "↓ 下降"
+downBtn.Text = "↓ 向下瞬移"
 downBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 downBtn.Font = Enum.Font.GothamBold
 downBtn.TextSize = 14
 Instance.new("UICorner", downBtn).CornerRadius = UDim.new(0, 4)
 
--- 速度显示
+-- 速度显示与加减
 local spdLabel = Instance.new("TextLabel", main)
 spdLabel.Size = UDim2.new(1, -20, 0, 30)
 spdLabel.Position = UDim2.new(0, 10, 0, 190)
@@ -136,10 +137,9 @@ spdLabel.Font = Enum.Font.Gotham
 spdLabel.TextSize = 13
 Instance.new("UICorner", spdLabel).CornerRadius = UDim.new(0, 4)
 
--- 减号按钮
 local minusBtn = Instance.new("TextButton", main)
 minusBtn.Size = UDim2.new(0, 40, 0, 30)
-minusBtn.Position = UDim2.new(0, 10, 0, 230)
+minusBtn.Position = UDim2.new(0, 10, 0, 240)
 minusBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 minusBtn.Text = "-"
 minusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -147,10 +147,9 @@ minusBtn.Font = Enum.Font.GothamBold
 minusBtn.TextSize = 20
 Instance.new("UICorner", minusBtn).CornerRadius = UDim.new(0, 4)
 
--- 加号按钮
 local plusBtn = Instance.new("TextButton", main)
 plusBtn.Size = UDim2.new(0, 40, 0, 30)
-plusBtn.Position = UDim2.new(1, -50, 0, 230)
+plusBtn.Position = UDim2.new(1, -50, 0, 240)
 plusBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 plusBtn.Text = "+"
 plusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -167,29 +166,21 @@ plusBtn.MouseButton1Click:Connect(function()
 end)
 
 -- =======================
--- 上下按钮事件监听
+-- 瞬移逻辑
 -- =======================
--- 按住上升
-upBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        verticalSpeed = flySpeed
-    end
-end)
-upBtn.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        verticalSpeed = 0
+local teleportDistance = 25
+
+upBtn.MouseButton1Click:Connect(function()
+    local c = LocalPlayer.Character
+    if c and c:FindFirstChild("HumanoidRootPart") then
+        c.HumanoidRootPart.CFrame = c.HumanoidRootPart.CFrame + Vector3.new(0, teleportDistance, 0)
     end
 end)
 
--- 按住下降
-downBtn.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        verticalSpeed = -flySpeed
-    end
-end)
-downBtn.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        verticalSpeed = 0
+downBtn.MouseButton1Click:Connect(function()
+    local c = LocalPlayer.Character
+    if c and c:FindFirstChild("HumanoidRootPart") then
+        c.HumanoidRootPart.CFrame = c.HumanoidRootPart.CFrame - Vector3.new(0, teleportDistance, 0)
     end
 end)
 
@@ -198,7 +189,13 @@ noclipBtn.MouseButton1Click:Connect(function()
     isNoclip = not isNoclip
     noclipBtn.BackgroundColor3 = isNoclip and Color3.fromRGB(0, 150, 80) or Color3.fromRGB(50, 50, 50)
     noclipBtn.Text = isNoclip and "穿墙模式 [开]" or "穿墙模式 [关]"
-    if not isNoclip then restoreCollision() end
+    
+    -- 如果在飞行中，更新物理状态；如果没飞，确保恢复
+    if flying then
+        setNoclipState(isNoclip)
+    else
+        if not isNoclip then setNoclipState(false) end
+    end
 end)
 
 -- 飞行开关逻辑
@@ -212,44 +209,37 @@ flyBtn.MouseButton1Click:Connect(function()
         flyBtn.Text = "开启飞行 [开]"
         local hrp = char.HumanoidRootPart
         
+        -- 开启穿墙和悬浮
+        setNoclipState(isNoclip)
+        
         bv = Instance.new("BodyVelocity")
         bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
         bv.Parent = hrp
         
-        -- 使用 Heartbeat 代替 RenderStepped，物理响应更精准，穿墙不卡顿
+        -- 使用 Heartbeat 处理稳定移动
         renderConn = RunService.Heartbeat:Connect(function()
             if not flying or not bv then return end
             local c = LocalPlayer.Character
             if not c or not c:FindFirstChild("Humanoid") then return end
             
-            -- 【穿墙优化】彻底关闭碰撞、质量归零、强制物理状态
+            -- 如果在飞行中开启了穿墙，实时循环确认碰撞已关闭
             if isNoclip then
                 for _, v in pairs(c:GetDescendants()) do
                     if v:IsA("BasePart") and v.CanCollide then
                         v.CanCollide = false
-                        v.Massless = true
                     end
                 end
             end
 
             local dir = c.Humanoid.MoveDirection
-            
-            -- 水平移动：剔除Y轴，纯水平方向
             local flatDir = Vector3.new(dir.X, 0, dir.Z)
             local horizontalVel = Vector3.new(0, 0, 0)
+            
             if flatDir.Magnitude > 0.05 then
                 horizontalVel = flatDir.Unit * flySpeed
             end
             
-            -- 垂直移动：加上按钮的上升/下降速度
-            local finalVel = horizontalVel + Vector3.new(0, verticalSpeed, 0)
-            
-            -- 保持飞行速度，如果没有输入则完全悬停（克服重力）
-            if finalVel.Magnitude > 0.05 then
-                bv.Velocity = finalVel
-            else
-                bv.Velocity = Vector3.new(0, 0, 0)
-            end
+            bv.Velocity = horizontalVel
         end)
         
     else
