@@ -19,7 +19,7 @@ gui.IgnoreGuiInset = true -- 【关键修复】：忽略顶部栏，保证锁定
 gui.Parent = PlayerGui
 
 -- ==========================================
--- 1. 屏幕中心锁定圈
+-- 1. 屏幕中心里锁定圈
 -- ==========================================
 local lockCircle = Instance.new("Frame")
 lockCircle.Name = "LockCircle"
