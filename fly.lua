@@ -1,11 +1,12 @@
 -- ==========================================
--- Havvk科技 | 极简飞行+旋转穿墙 (完美修正版)
+-- Havvk科技 | 飞行+穿墙 (绝对防弹版)
 -- ==========================================
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
 
+-- 安全获取 PlayerGui
 local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
 if not PlayerGui then
     PlayerGui = LocalPlayer:WaitForChild("PlayerGui", 5)
@@ -21,7 +22,6 @@ screenGui.Name = "Havvk_FlyModule"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = PlayerGui
 
--- 窗口高度加到了 230 放新按钮
 local mainFrame = Instance.new("Frame")
 mainFrame.Size = UDim2.new(0, 240, 0, 230)
 mainFrame.Position = UDim2.new(0.5, -120, 0.5, -115)
@@ -63,16 +63,16 @@ closeBtn.TextSize = 14
 closeBtn.Parent = topBar
 
 local flying = false
-local isNoclip = false -- 穿墙开关状态
+local isNoclip = false
 local flySpeed = 50
 local bv, bg
 local RenderConnection
 
 local function stopFlying()
     flying = false
-    if bv then bv:Destroy() bv = nil end
-    if bg then bg:Destroy() bg = nil end
-    if RenderConnection then RenderConnection:Disconnect() RenderConnection = nil end
+    if bv then pcall(function() bv:Destroy() end) bv = nil end
+    if bg then pcall(function() bg:Destroy() end) bg = nil end
+    if RenderConnection then pcall(function() RenderConnection:Disconnect() end) RenderConnection = nil end
 end
 
 closeBtn.MouseButton1Click:Connect(function()
@@ -80,7 +80,6 @@ closeBtn.MouseButton1Click:Connect(function()
     screenGui:Destroy()
 end)
 
--- 飞行开关
 local toggleBtn = Instance.new("TextButton")
 toggleBtn.Size = UDim2.new(1, -20, 0, 40)
 toggleBtn.Position = UDim2.new(0, 10, 0, 45)
@@ -95,7 +94,6 @@ local btnCorner = Instance.new("UICorner")
 btnCorner.CornerRadius = UDim.new(0, 4)
 btnCorner.Parent = toggleBtn
 
--- 穿墙开关
 local noclipBtn = Instance.new("TextButton")
 noclipBtn.Size = UDim2.new(1, -20, 0, 40)
 noclipBtn.Position = UDim2.new(0, 10, 0, 90)
@@ -110,7 +108,6 @@ local noclipCorner = Instance.new("UICorner")
 noclipCorner.CornerRadius = UDim.new(0, 4)
 noclipCorner.Parent = noclipBtn
 
--- 速度显示
 local speedLabel = Instance.new("TextLabel")
 speedLabel.Size = UDim2.new(1, -20, 0, 30)
 speedLabel.Position = UDim2.new(0, 10, 0, 140)
@@ -125,7 +122,6 @@ local labelCorner = Instance.new("UICorner")
 labelCorner.CornerRadius = UDim.new(0, 4)
 labelCorner.Parent = speedLabel
 
--- 减号按钮
 local minusBtn = Instance.new("TextButton")
 minusBtn.Size = UDim2.new(0, 40, 0, 30)
 minusBtn.Position = UDim2.new(0, 10, 0, 180)
@@ -140,7 +136,6 @@ local minusCorner = Instance.new("UICorner")
 minusCorner.CornerRadius = UDim.new(0, 4)
 minusCorner.Parent = minusBtn
 
--- 加号按钮
 local plusBtn = Instance.new("TextButton")
 plusBtn.Size = UDim2.new(0, 40, 0, 30)
 plusBtn.Position = UDim2.new(1, -50, 0, 180)
@@ -158,4 +153,4 @@ plusCorner.Parent = plusBtn
 minusBtn.MouseButton1Click:Connect(function()
     if flySpeed > 10 then
         flySpeed = flySpeed - 10
-        speedLabel.Text = "当前速度: " .. flySpee
+        speedLabel.Text = "当前速度: " 
