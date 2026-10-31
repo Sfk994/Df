@@ -1,5 +1,5 @@
 -- ==========================================
--- Havvk科技 | 高级透视与智能吸附自瞄 (全局不闪烁版67)
+-- Havvk科技 | 高级透视(高光+方框)与智能吸附自瞄
 -- ==========================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -18,8 +18,14 @@ gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = true 
 gui.Parent = PlayerGui
 
+-- 专门用来存放方框的容器（放在底层防止挡住菜单）
+local boxContainer = Instance.new("Frame")
+boxContainer.Size = UDim2.new(1, 0, 1, 0)
+boxContainer.BackgroundTransparency = 1
+boxContainer.Parent = gui
+
 -- ==========================================
--- 1. 屏幕中心锁定圈 (改回 40 像素小圈)
+-- 1. 屏幕中心锁定圈 (40 像素)
 -- ==========================================
 local lockCircle = Instance.new("Frame")
 lockCircle.Name = "LockCircle"
@@ -34,10 +40,8 @@ circleStroke.Color = Color3.fromRGB(255, 255, 255)
 circleStroke.Thickness = 1.5
 circleStroke.Transparency = 0.5
 circleStroke.Parent = lockCircle
-
 Instance.new("UICorner", lockCircle).CornerRadius = UDim.new(1, 0)
 
--- 中心小点
 local centerDot = Instance.new("Frame")
 centerDot.Size = UDim2.new(0, 2, 0, 2)
 centerDot.Position = UDim2.new(0.5, -1, 0.5, -1)
@@ -47,17 +51,16 @@ centerDot.Parent = lockCircle
 Instance.new("UICorner", centerDot).CornerRadius = UDim.new(1, 0)
 
 -- ==========================================
--- 2. 主界面 UI
+-- 2. 主界面 UI (加高以容纳方框开关)
 -- ==========================================
 local main = Instance.new("Frame")
-main.Size = UDim2.new(0, 240, 0, 300)
-main.Position = UDim2.new(0.5, -120, 0.5, -150)
+main.Size = UDim2.new(0, 240, 0, 350)
+main.Position = UDim2.new(0.5, -120, 0.5, -175)
 main.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 main.BorderSizePixel = 0
 main.ClipsDescendants = true
 main.Active = true
 main.Parent = gui
-
 Instance.new("UICorner", main).CornerRadius = UDim.new(0, 6)
 
 local top = Instance.new("Frame", main)
@@ -69,7 +72,7 @@ local title = Instance.new("TextLabel", top)
 title.Size = UDim2.new(1, -40, 1, 0)
 title.Position = UDim2.new(0, 10, 0, 0)
 title.BackgroundTransparency = 1
-title.Text = " 视觉与战斗 V4"
+title.Text = " 视觉与战斗 V5"
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Font = Enum.Font.GothamBold
@@ -85,13 +88,16 @@ closeBtn.Font = Enum.Font.GothamBold
 closeBtn.TextSize = 14
 
 -- ==========================================
--- 3. 状态与核心逻辑
+-- 3. 状态逻辑
 -- ==========================================
 local espEnabled = false
+local boxEnabled = false -- 方框透视开关
 local aimbotEnabled = false
 local teamCheckEnabled = false
 local aimSpeedMode = 1
+
 local activeHighlights = {}
+local activeBoxes = {} -- 存储玩家对应的方框
 
 local function isTeammate(player)
     if not teamCheckEnabled then return false end
@@ -101,62 +107,107 @@ local function isTeammate(player)
     return false
 end
 
--- 【高光重构】：直接强制赋予，忽略距离，绝对穿透
+-- 【高光逻辑】
 local function updateESP()
     if not espEnabled then return end
-    
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
             local char = player.Character
             local existing = char:FindFirstChild("HavvkHighlight")
+            local targetColor = isTeammate(player) and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
             
-            -- 如果没有高光，或者颜色不对，就强制加上/覆盖
-            if not existing or existing.FillColor ~= (isTeammate(player) and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)) then
+            if not existing or existing.FillColor ~= targetColor then
                 if existing then existing:Destroy() end
-                
                 local hl = Instance.new("Highlight")
                 hl.Name = "HavvkHighlight"
-                hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop -- 【核心】：绝对穿墙，永不闪烁
+                hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
                 hl.FillTransparency = 0.4
                 hl.OutlineTransparency = 0
-                
-                if isTeammate(player) then
-                    hl.FillColor = Color3.fromRGB(0, 255, 0) 
-                    hl.OutlineColor = Color3.fromRGB(0, 200, 0)
-                else
-                    hl.FillColor = Color3.fromRGB(255, 0, 0) 
-                    hl.OutlineColor = Color3.fromRGB(255, 50, 50)
-                end
+                hl.FillColor = targetColor
+                hl.OutlineColor = targetColor
                 hl.Parent = char
             end
         end
     end
 end
 
--- 绑定重生事件（极速上色）
-local function onCharacterAdded(char, player)
-    if espEnabled then
-        task.wait(0.1)
-        updateESP()
-    end
-end
-
+-- 绑定重生事件
 for _, p in ipairs(Players:GetPlayers()) do
     if p ~= LocalPlayer then
-        p.CharacterAdded:Connect(function(c) onCharacterAdded(c, p) end)
+        p.CharacterAdded:Connect(function() task.wait(0.2) updateESP() end)
     end
 end
 Players.PlayerAdded:Connect(function(p)
-    p.CharacterAdded:Connect(function(c) onCharacterAdded(c, p) end)
+    p.CharacterAdded:Connect(function() task.wait(0.2) updateESP() end)
 end)
 
--- 自瞄视觉圈判断
+-- ==========================================
+-- 4. 2D方框透视逻辑 (RenderStepped)
+-- ==========================================
+RunService.RenderStepped:Connect(function()
+    if not boxEnabled then 
+        for _, box in pairs(activeBoxes) do
+            box.Visible = false
+        end
+        return 
+    end
+
+    local cam = workspace.CurrentCamera
+    
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local char = player.Character
+            local head = char:FindFirstChild("Head")
+            local humanoid = char:FindFirstChild("Humanoid")
+            local hrp = char:FindFirstChild("HumanoidRootPart")
+            
+            if head and humanoid and humanoid.Health > 0 and hrp then
+                -- 获取方框 UI 实例（没有就创建）
+                if not activeBoxes[player] then
+                    local box = Instance.new("Frame")
+                    box.BackgroundTransparency = 1
+                    box.BorderSizePixel = 1
+                    box.Parent = boxContainer
+                    activeBoxes[player] = box
+                end
+                
+                local box = activeBoxes[player]
+                local headPos, onScreen = cam:WorldToViewportPoint(head.Position)
+                -- 获取脚底大约位置 (RootPart 往下 2.5 格)
+                local footPos = cam:WorldToViewportPoint(hrp.Position - Vector3.new(0, 2.5, 0))
+                
+                if onScreen and headPos.Z > 0 then
+                    -- 计算方框大小和位置
+                    local height = math.abs(footPos.Y - headPos.Y)
+                    local width = height * 0.55 -- 比例协调
+                    local x = headPos.X - (width / 2)
+                    local y = headPos.Y
+                    
+                    box.Size = UDim2.new(0, width, 0, height)
+                    box.Position = UDim2.new(0, x, 0, y)
+                    box.BorderColor3 = isTeammate(player) and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+                    box.Visible = true
+                else
+                    box.Visible = false
+                end
+            else
+                if activeBoxes[player] then
+                    activeBoxes[player].Visible = false
+                end
+            end
+        end
+    end
+end)
+
+-- ==========================================
+-- 5. 智能吸附自瞄 (FOV 150)
+-- ==========================================
 local function getClosestEnemyInFOV()
     local closestDist = math.huge
     local target = nil
     local cam = workspace.CurrentCamera
     local screenCenter = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
-    local fovRadius = 150 -- 自瞄范围恢复到 150，手感更好
+    local fovRadius = 150
 
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character and not isTeammate(player) then
@@ -206,9 +257,8 @@ local aimbotConnection = RunService.RenderStepped:Connect(function()
         circleStroke.Transparency = 0.5
     end
 end)
-
 -- ==========================================
--- 4. UI 事件
+-- 6. UI 事件
 -- ==========================================
 local function createUIButton(text, yPos, color)
     local btn = Instance.new("TextButton", main)
@@ -223,26 +273,32 @@ local function createUIButton(text, yPos, color)
     return btn
 end
 
-local espBtn = createUIButton("玩家高光 (ESP) [关]", 45)
-local aimBtn = createUIButton("自动瞄准 (Aimbot) [关]", 95)
-local speedBtn = createUIButton("自瞄速度: 1档 (秒锁)", 145, Color3.fromRGB(60, 60, 60))
-local teamBtn = createUIButton("阵营区分: [关] (全红)", 195, Color3.fromRGB(60, 60, 60))
-local clearBtn = createUIButton("强制刷新高光", 245, Color3.fromRGB(100, 100, 100))
+local espBtn = createUIButton("高光透视 (ESP) [关]", 45)
+local boxBtn = createUIButton("方框透视 (Box) [关]", 95) -- 新增方框按钮
+local aimBtn = createUIButton("自动瞄准 (Aimbot) [关]", 145)
+local speedBtn = createUIButton("自瞄速度: 1档 (秒锁)", 195, Color3.fromRGB(60, 60, 60))
+local teamBtn = createUIButton("阵营区分: [关] (全红)", 245, Color3.fromRGB(60, 60, 60))
 
 espBtn.MouseButton1Click:Connect(function()
     espEnabled = not espEnabled
     espBtn.BackgroundColor3 = espEnabled and Color3.fromRGB(0, 150, 80) or Color3.fromRGB(50, 50, 50)
-    espBtn.Text = espEnabled and "玩家高光 (ESP) [开]" or "玩家高光 (ESP) [关]"
-    
-    if espEnabled then 
-        updateESP() 
-    else
+    espBtn.Text = espEnabled and "高光透视 (ESP) [开]" or "高光透视 (ESP) [关]"
+    if espEnabled then updateESP() else
         for _, p in ipairs(Players:GetPlayers()) do
             if p ~= LocalPlayer and p.Character then
                 local hl = p.Character:FindFirstChild("HavvkHighlight")
                 if hl then hl:Destroy() end
             end
         end
+    end
+end)
+
+boxBtn.MouseButton1Click:Connect(function()
+    boxEnabled = not boxEnabled
+    boxBtn.BackgroundColor3 = boxEnabled and Color3.fromRGB(0, 150, 80) or Color3.fromRGB(50, 50, 50)
+    boxBtn.Text = boxEnabled and "方框透视 (Box) [开]" or "方框透视 (Box) [关]"
+    if not boxEnabled then
+        for _, box in pairs(activeBoxes) do box.Visible = false end
     end
 end)
 
@@ -268,18 +324,12 @@ teamBtn.MouseButton1Click:Connect(function()
     updateESP()
 end)
 
-clearBtn.MouseButton1Click:Connect(function()
-    updateESP()
-    clearBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 80)
-    task.wait(0.2)
-    clearBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
-end)
-
 -- ==========================================
--- 5. 清理与拖拽
+-- 7. 清理与拖拽
 -- ==========================================
 local function cleanup()
     espEnabled = false
+    boxEnabled = false
     aimbotEnabled = false
     if aimbotConnection then aimbotConnection:Disconnect() end
     for _, p in ipairs(Players:GetPlayers()) do
@@ -288,18 +338,11 @@ local function cleanup()
             if hl then hl:Destroy() end
         end
     end
+    for _, box in pairs(activeBoxes) do box:Destroy() end
     gui:Destroy()
 end
 
 closeBtn.MouseButton1Click:Connect(cleanup)
-LocalPlayer.CharacterAdded:Connect(function()
-    if aimbotEnabled then
-        aimbotEnabled = false
-        aimBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-        aimBtn.Text = "自动瞄准 (Aimbot) [关]"
-        lockCircle.Visible = false
-    end
-end)
 
 local drag, dragStart, startPos
 top.InputBegan:Connect(function(input)
