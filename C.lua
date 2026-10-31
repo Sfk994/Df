@@ -1,22 +1,20 @@
 -- ==========================================
--- Havvk科技 | 极简多列移动端版
+-- Havvk科技 | 纯净稳如老狗开关版
 -- ==========================================
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
-local RunService = game:GetService("RunService")
 local StarterGui = game:GetService("StarterGui")
-
 local LocalPlayer = Players.LocalPlayer
 
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "HavvkTech_Mobile"
+screenGui.Name = "HavvkTech_Stable"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = game:GetService("CoreGui")
 
--- 主窗口 (放大版)
+-- 主窗口
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 320, 0, 330)
-mainFrame.Position = UDim2.new(0.5, -160, 0.5, -165)
+mainFrame.Size = UDim2.new(0, 280, 0, 260)
+mainFrame.Position = UDim2.new(0.5, -140, 0.5, -130)
 mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 mainFrame.BorderSizePixel = 0
 mainFrame.ClipsDescendants = true
@@ -35,7 +33,7 @@ topBar.BorderSizePixel = 0
 topBar.Parent = mainFrame
 
 local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -60, 1, 0)
+title.Size = UDim2.new(1, -70, 1, 0)
 title.Position = UDim2.new(0, 15, 0, 0)
 title.BackgroundTransparency = 1
 title.Text = " Havvk科技"
@@ -47,8 +45,8 @@ title.Parent = topBar
 
 -- 最小化按钮
 local minBtn = Instance.new("TextButton")
-minBtn.Size = UDim2.new(0, 40, 0, 40)
-minBtn.Position = UDim2.new(1, -80, 0, 0)
+minBtn.Size = UDim2.new(0, 35, 0, 40)
+minBtn.Position = UDim2.new(1, -70, 0, 0)
 minBtn.BackgroundTransparency = 1
 minBtn.Text = "—"
 minBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
@@ -58,8 +56,8 @@ minBtn.Parent = topBar
 
 -- 关闭按钮
 local closeBtn = Instance.new("TextButton")
-closeBtn.Size = UDim2.new(0, 40, 0, 40)
-closeBtn.Position = UDim2.new(1, -40, 0, 0)
+closeBtn.Size = UDim2.new(0, 35, 0, 40)
+closeBtn.Position = UDim2.new(1, -35, 0, 0)
 closeBtn.BackgroundTransparency = 1
 closeBtn.Text = "X"
 closeBtn.TextColor3 = Color3.fromRGB(255, 80, 80)
@@ -67,95 +65,93 @@ closeBtn.Font = Enum.Font.GothamBold
 closeBtn.TextSize = 15
 closeBtn.Parent = topBar
 
--- 内容容器
+-- 内容容器 (带自动排版，绝对不乱)
 local content = Instance.new("Frame")
 content.Size = UDim2.new(1, 0, 1, -40)
 content.Position = UDim2.new(0, 0, 0, 40)
 content.BackgroundTransparency = 1
 content.Parent = mainFrame
 
+local uiList = Instance.new("UIListLayout")
+uiList.Padding = UDim.new(0, 10)
+uiList.SortOrder = Enum.SortOrder.LayoutOrder
+uiList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+uiList.Parent = content
+
+local uiPadding = Instance.new("UIPadding")
+uiPadding.PaddingTop = UDim.new(0, 10)
+uiPadding.Parent = content
+
 -- 关闭和最小化逻辑
 closeBtn.MouseButton1Click:Connect(function() screenGui:Destroy() end)
 local isMin = false
 minBtn.MouseButton1Click:Connect(function()
     isMin = not isMin
-    if isMin then mainFrame.Size = UDim2.new(0, 320, 0, 40) else mainFrame.Size = UDim2.new(0, 320, 0, 330) end
+    if isMin then mainFrame.Size = UDim2.new(0, 280, 0, 40) else mainFrame.Size = UDim2.new(0, 280, 0, 260) end
 end)
 
 -- ==========================================
--- 通用组件生成函数 (适配移动端)
+-- 稳定的开关组件
 -- ==========================================
-
--- 普通按钮
-local function createButton(text, pos, size, callback)
+local function createSwitch(textStr, defaultState, callback)
+    local state = defaultState
     local btn = Instance.new("TextButton")
-    btn.Size = size
-    btn.Position = pos
-    btn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-    btn.Text = text
+    btn.Size = UDim2.new(1, -20, 0, 45)
+    btn.BackgroundColor3 = state and Color3.fromRGB(0, 150, 80) or Color3.fromRGB(50, 50, 50)
+    btn.Text = textStr .. (state and " [开]" or " [关]")
     btn.TextColor3 = Color3.fromRGB(255, 255, 255)
     btn.Font = Enum.Font.Gotham
-    btn.TextSize = 13
+    btn.TextSize = 14
+    btn.AutoButtonColor = false
     btn.Parent = content
     
     local corner = Instance.new("UICorner")
     corner.CornerRadius = UDim.new(0, 4)
     corner.Parent = btn
-    
-    btn.MouseButton1Click:Connect(callback)
-    return btn
+
+    btn.MouseButton1Click:Connect(function()
+        state = not state
+        btn.BackgroundColor3 = state and Color3.fromRGB(0, 150, 80) or Color3.fromRGB(50, 50, 50)
+        btn.Text = textStr .. (state and " [开]" or " [关]")
+        pcall(callback, state) -- 用 pcall 保护，哪怕功能报错 UI 也不会卡死
+    end)
 end
 
--- 速度滑块 (支持移动端触摸拖动)
-local function createSlider(yPos)
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(1, -20, 0, 50)
-    frame.Position = UDim2.new(0, 10, 0, yPos)
-    frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-    frame.Parent = content
-    
-    local corner = Instance.new("UICorner")
-    corner.CornerRadius = UDim.new(0, 4)
-    corner.Parent = frame
+-- ==========================================
+-- 添加你的功能开关
+-- ==========================================
 
-    local text = Instance.new("TextLabel")
-    text.Size = UDim2.new(1, 0, 0, 20)
-    text.BackgroundTransparency = 1
-    text.Text = "移动速度: 16"
-    text.TextColor3 = Color3.fromRGB(200, 200, 200)
-    text.Font = Enum.Font.Gotham
-    text.TextSize = 12
-    text.Parent = frame
-
-    local bar = Instance.new("Frame")
-    bar.Size = UDim2.new(0, 280, 0, 6)
-    bar.Position = UDim2.new(0, 10, 0, 30)
-    bar.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-    bar.Parent = frame
-
-    local fill = Instance.new("Frame")
-    fill.Size = UDim2.new(0, 0, 1, 0)
-    fill.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
-    fill.Parent = bar
-    
-    local fillCorner = Instance.new("UICorner")
-    fillCorner.CornerRadius = UDim.new(1, 0)
-    fillCorner.Parent = fill
-
-    local isDragging = false
-    
-    local function updateSlider(input)
-        local posX = math.clamp(input.Position.X - bar.AbsolutePosition.X, 0, bar.AbsoluteSize.X)
-        local percent = posX / bar.AbsoluteSize.X
-        fill.Size = UDim2.new(percent, 0, 1, 0)
-        local speed = math.floor(16 + (percent * 184)) -- 范围 16 到 200
-        text.Text = "移动速度: " .. speed
-        
-        local char = LocalPlayer.Character
-        if char and char:FindFirstChild("Humanoid") then
-            char.Humanoid.WalkSpeed = speed
+-- 开关 1：极速模式
+createSwitch("极速行走", false, function(state)
+    local char = LocalPlayer.Character
+    if char and char:FindFirstChild("Humanoid") then
+        if state then
+            char.Humanoid.WalkSpeed = 100
+        else
+            char.Humanoid.WalkSpeed = 16
         end
     end
+end)
 
-    bar.InputBegan:Connect(function(input)
-    
+-- 开关 2：超级跳
+createSwitch("超级跳跃", false, function(state)
+    local char = LocalPlayer.Character
+    if char and char:FindFirstChild("Humanoid") then
+        if state then
+            char.Humanoid.JumpPower = 100
+            char.Humanoid.UseJumpPower = true
+        else
+            char.Humanoid.JumpPower = 50
+        end
+    end
+end)
+
+-- ==========================================
+-- 拖拽逻辑
+-- ==========================================
+local dragging, dragInput, dragStart, startPos
+topBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+  
