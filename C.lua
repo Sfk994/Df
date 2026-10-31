@@ -1,6 +1,6 @@
 -- =========================================
 -- Havvk科技 | 纯净稳如老狗开关版
--- ==========================================
+-- =========================================
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local StarterGui = game:GetService("StarterGui")
