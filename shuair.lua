@@ -1,5 +1,5 @@
 -- =========================================
--- Havvk科技 | 暴力甩人 (碰撞开启+合理速度)
+-- Havvk科技 | 暴力甩人 (碰撞开启+合理速度)6767667676
 -- ==========================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
