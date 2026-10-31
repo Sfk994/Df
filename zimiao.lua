@@ -1,5 +1,5 @@
 -- ==========================================
--- Havvk科技 | 高级透视与自瞄模块 (区分队友/变速)
+-- Havvk科技 | 高级透视与自瞄模块 (居中/刷新/变速)
 -- ==========================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -15,6 +15,7 @@ end
 local gui = Instance.new("ScreenGui")
 gui.Name = "Havvk_ESP_Aimbot"
 gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true -- 【关键修复】：忽略顶部栏，保证锁定圈绝对居中
 gui.Parent = PlayerGui
 
 -- ==========================================
@@ -25,7 +26,7 @@ lockCircle.Name = "LockCircle"
 lockCircle.Size = UDim2.new(0, 40, 0, 40)
 lockCircle.Position = UDim2.new(0.5, -20, 0.5, -20)
 lockCircle.BackgroundTransparency = 1
-lockCircle.Visible = false -- 自瞄开启后才显示
+lockCircle.Visible = false
 lockCircle.Parent = gui
 
 local circleStroke = Instance.new("UIStroke")
@@ -37,11 +38,11 @@ circleStroke.Parent = lockCircle
 Instance.new("UICorner", lockCircle).CornerRadius = UDim.new(1, 0)
 
 -- ==========================================
--- 2. 主界面 UI
+-- 2. 主界面 UI (加高以容纳新按钮)
 -- ==========================================
 local main = Instance.new("Frame")
-main.Size = UDim2.new(0, 240, 0, 250)
-main.Position = UDim2.new(0.5, -120, 0.5, -125)
+main.Size = UDim2.new(0, 240, 0, 310)
+main.Position = UDim2.new(0.5, -120, 0.5, -155)
 main.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 main.BorderSizePixel = 0
 main.ClipsDescendants = true
@@ -59,7 +60,7 @@ local title = Instance.new("TextLabel", top)
 title.Size = UDim2.new(1, -40, 1, 0)
 title.Position = UDim2.new(0, 10, 0, 0)
 title.BackgroundTransparency = 1
-title.Text = " 视觉与战斗模块"
+title.Text = " 视觉与战斗模块 V2"
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Font = Enum.Font.GothamBold
@@ -75,20 +76,20 @@ closeBtn.Font = Enum.Font.GothamBold
 closeBtn.TextSize = 14
 
 -- ==========================================
--- 3. 功能逻辑变量
+-- 3. 功能逻辑与变量
 -- ==========================================
 local espEnabled = false
 local aimbotEnabled = false
-local aimSpeedMode = 1 -- 1:秒锁, 2:平滑(0.1s), 3:慢速(0.2s)
+local teamCheckEnabled = false -- 阵营区分开关 (默认关，全部标红)
+local aimSpeedMode = 1 -- 1:秒锁, 2:快速平滑, 3:慢速
 local activeHighlights = {}
 
--- 判断是否队友
 local function isTeammate(player)
+    if not teamCheckEnabled then return false end -- 如果关了阵营区分，全部视为敌人(红色)
     if not LocalPlayer.Team or not player.Team then return false end
     return LocalPlayer.Team == player.Team
 end
 
--- 生成高光
 local function createHighlight(char, player)
     if not char then return end
     if activeHighlights[char] then
@@ -97,7 +98,6 @@ local function createHighlight(char, player)
     end
     
     local hl = Instance.new("Highlight")
-    -- 区分队友和敌人颜色
     if isTeammate(player) then
         hl.FillColor = Color3.fromRGB(0, 255, 0) -- 队友绿色
         hl.OutlineColor = Color3.fromRGB(0, 150, 0)
@@ -111,6 +111,7 @@ local function createHighlight(char, player)
     activeHighlights[char] = hl
 end
 
+-- 刷新 ESP 逻辑
 local function updateESP()
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer then
@@ -126,7 +127,6 @@ local function updateESP()
     end
 end
 
--- 监听玩家重生
 Players.PlayerAdded:Connect(function(player)
     player.CharacterAdded:Connect(function(char)
         task.wait(0.5)
@@ -134,13 +134,13 @@ Players.PlayerAdded:Connect(function(player)
     end)
 end)
 
--- 获取最近敌人 (过滤队友)
 local function getClosestEnemy()
     local closestDist = math.huge
     local target = nil
     local camPos = workspace.CurrentCamera.CFrame.Position
     
     for _, player in ipairs(Players:GetPlayers()) do
+        -- 自瞄逻辑：如果开启了阵营区分，则忽略队友；没开则全部锁定
         if player ~= LocalPlayer and player.Character and not isTeammate(player) then
             local humanoid = player.Character:FindFirstChild("Humanoid")
             local head = player.Character:FindFirstChild("Head")
@@ -168,8 +168,7 @@ local aimbotConnection = RunService.RenderStepped:Connect(function()
     local targetHead = getClosestEnemy()
     
     if targetHead then
-        -- 锁定到人，锁定圈变黄
-        circleStroke.Color = Color3.fromRGB(255, 255, 0)
+        circleStroke.Color = Color3.fromRGB(255, 255, 0) -- 锁定时变黄
         circleStroke.Transparency = 0
         
         local camera = workspace.CurrentCamera
@@ -177,19 +176,15 @@ local aimbotConnection = RunService.RenderStepped:Connect(function()
         local camPos = camera.CFrame.Position
         local targetCFrame = CFrame.lookAt(camPos, targetPos)
         
-        -- 根据档位设置平滑度
+        -- 优化后的速度档位
         if aimSpeedMode == 1 then
-            -- 1档：没有等待，瞬间锁死
-            camera.CFrame = targetCFrame
+            camera.CFrame = targetCFrame -- 秒锁
         elseif aimSpeedMode == 2 then
-            -- 2档：大约 0.1s 的平滑
-            camera.CFrame = camera.CFrame:Lerp(targetCFrame, 0.6)
+            camera.CFrame = camera.CFrame:Lerp(targetCFrame, 0.8) -- 【拉高】明显更快
         else
-            -- 3档：大约 0.2s 的平滑，非常丝滑
-            camera.CFrame = camera.CFrame:Lerp(targetCFrame, 0.25)
+            camera.CFrame = camera.CFrame:Lerp(targetCFrame, 0.5) -- 【拉高】不再慢吞吞
         end
     else
-        -- 没锁到人，锁定圈变白且半透明
         circleStroke.Color = Color3.fromRGB(255, 255, 255)
         circleStroke.Transparency = 0.5
     end
@@ -198,35 +193,24 @@ end)
 -- ==========================================
 -- 4. UI 按钮事件
 -- ==========================================
-local espBtn = Instance.new("TextButton", main)
-espBtn.Size = UDim2.new(1, -20, 0, 40)
-espBtn.Position = UDim2.new(0, 10, 0, 45)
-espBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-espBtn.Text = "玩家高光 (ESP) [关]"
-espBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-espBtn.Font = Enum.Font.Gotham
-espBtn.TextSize = 14
-Instance.new("UICorner", espBtn).CornerRadius = UDim.new(0, 4)
+local function createUIButton(text, yPos, color)
+    local btn = Instance.new("TextButton", main)
+    btn.Size = UDim2.new(1, -20, 0, 40)
+    btn.Position = UDim2.new(0, 10, 0, yPos)
+    btn.BackgroundColor3 = color or Color3.fromRGB(50, 50, 50)
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.Font = Enum.Font.Gotham
+    btn.TextSize = 14
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 4)
+    return btn
+end
 
-local aimBtn = Instance.new("TextButton", main)
-aimBtn.Size = UDim2.new(1, -20, 0, 40)
-aimBtn.Position = UDim2.new(0, 10, 0, 95)
-aimBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-aimBtn.Text = "自动瞄准 (Aimbot) [关]"
-aimBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-aimBtn.Font = Enum.Font.Gotham
-aimBtn.TextSize = 14
-Instance.new("UICorner", aimBtn).CornerRadius = UDim.new(0, 4)
-
-local speedBtn = Instance.new("TextButton", main)
-speedBtn.Size = UDim2.new(1, -20, 0, 40)
-speedBtn.Position = UDim2.new(0, 10, 0, 145)
-speedBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-speedBtn.Text = "自瞄速度: 1档 (秒锁)"
-speedBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-speedBtn.Font = Enum.Font.Gotham
-speedBtn.TextSize = 14
-Instance.new("UICorner", speedBtn).CornerRadius = UDim.new(0, 4)
+local espBtn = createUIButton("玩家高光 (ESP) [关]", 45)
+local aimBtn = createUIButton("自动瞄准 (Aimbot) [关]", 95)
+local speedBtn = createUIButton("自瞄速度: 1档 (秒锁)", 145, Color3.fromRGB(60, 60, 60))
+local teamBtn = createUIButton("阵营区分: [关] (全红)", 195, Color3.fromRGB(60, 60, 60))
+local refreshBtn = createUIButton("刷新高光 (Refresh)", 245, Color3.fromRGB(100, 100, 100))
 
 -- 按钮点击逻辑
 espBtn.MouseButton1Click:Connect(function()
@@ -250,10 +234,30 @@ speedBtn.MouseButton1Click:Connect(function()
     if aimSpeedMode == 1 then
         speedBtn.Text = "自瞄速度: 1档 (秒锁)"
     elseif aimSpeedMode == 2 then
-        speedBtn.Text = "自瞄速度: 2档 (平滑)"
+        speedBtn.Text = "自瞄速度: 2档 (高速)"
     else
-        speedBtn.Text = "自瞄速度: 3档 (慢速)"
+        speedBtn.Text = "自瞄速度: 3档 (中速)"
     end
+end)
+
+teamBtn.MouseButton1Click:Connect(function()
+    teamCheckEnabled = not teamCheckEnabled
+    if teamCheckEnabled then
+        teamBtn.Text = "阵营区分: [开] (队友绿)"
+        teamBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 80)
+    else
+        teamBtn.Text = "阵营区分: [关] (全红)"
+        teamBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    end
+    updateESP() -- 切换后立刻刷新颜色
+end)
+
+refreshBtn.MouseButton1Click:Connect(function()
+    updateESP()
+    -- 按钮闪烁反馈
+    refreshBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 80)
+    task.wait(0.2)
+    refreshBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
 end)
 
 -- ==========================================
