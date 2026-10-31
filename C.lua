@@ -34,7 +34,7 @@ MainTab:Button({
     Desc = "点击运行飞行",
     Callback = function()
         -- ⚠️ 预留位置：把你分开做的功能A的 Raw 链接填到这里
-        local url = "https://raw.githubusercontent.com/Sfk994/Df/fa4b0de03eb5bed520bf7a955f1fec662a92b2ba/fly.lua"
+        local url = "https://raw.githubusercontent.com/Sfk994/Df/refs/heads/main/fly.lua"
         
         -- 如果链接还没做好，先弹个提示
         if string.find(url, "你的用户名") then
