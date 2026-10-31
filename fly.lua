@@ -146,4 +146,86 @@ flyBtn.MouseButton1Click:Connect(function()
     flying = not flying
     if flying then
         local char = LocalPlayer.Character
-        if not char or not char:Fi
+        if not char or not char:FindFirstChild("HumanoidRootPart") then flying = false; return end
+        
+        flyBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 80)
+        flyBtn.Text = "开启飞行 [开]"
+        local hrp = char.HumanoidRootPart
+        
+        bv = Instance.new("BodyVelocity")
+        bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+        bv.Parent = hrp
+        bg = Instance.new("BodyGyro")
+        bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+        bg.P = 1000
+        bg.Parent = hrp
+        
+        renderConn = RunService.Stepped:Connect(function()
+            if not flying or not bv or not bg then return end
+            local c = LocalPlayer.Character
+            local cam = workspace.CurrentCamera
+            
+            -- 穿墙逻辑：每帧强制关闭碰撞体积
+            if c and isNoclip then
+                for _, v in pairs(c:GetDescendants()) do
+                    if v:IsA("BasePart") then
+                        v.CanCollide = false
+                    end
+                end
+            end
+
+            if c and c:FindFirstChild("Humanoid") and cam then
+                local dir = c.Humanoid.MoveDirection
+                
+                -- 【方向彻底修复】
+                -- W(前)：dir.Z为-1，乘-1得1，向LookVector(相机前方)飞
+                -- S(后)：dir.Z为1，乘-1得-1，向后方飞
+                -- D(右)：dir.X为1，向RightVector(相机右方)飞
+                -- A(左)：dir.X为-1，向左方飞
+                local forward = cam.CFrame.LookVector * (dir.Z * -1)
+                local right = cam.CFrame.RightVector * dir.X
+                local moveVec = forward + right
+                
+                if moveVec.Magnitude > 0 then
+                    bv.Velocity = moveVec.Unit * flySpeed
+                else
+                    bv.Velocity = Vector3.new(0, 0, 0) -- 没推摇杆就悬停
+                end
+                
+                bg.CFrame = cam.CFrame
+            end
+        end)
+        
+    else
+        flyBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        flyBtn.Text = "开启飞行 [关]"
+        stopFly()
+    end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function()
+    if flying then
+        stopFly()
+        flyBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        flyBtn.Text = "开启飞行 [关]"
+        noclipBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        noclipBtn.Text = "穿墙模式 [关]"
+        isNoclip = false
+    end
+end)
+
+local drag, dragStart, startPos
+top.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        drag = true; dragStart = input.Position; startPos = main.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then drag = false end
+        end)
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if drag and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+        main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
