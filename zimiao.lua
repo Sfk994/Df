@@ -1,5 +1,5 @@
 -- ==========================================
--- Havvk科技 | 高级透视与智能吸附自瞄 (距离可调版)
+-- Havvk科技 | 高级透视与智能吸附自瞄 (全局不闪烁版)
 -- ==========================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -19,36 +19,35 @@ gui.IgnoreGuiInset = true
 gui.Parent = PlayerGui
 
 -- ==========================================
--- 1. 屏幕中心锁定圈 (扩大至 225 像素)
+-- 1. 屏幕中心锁定圈 (改回 40 像素小圈)
 -- ==========================================
 local lockCircle = Instance.new("Frame")
 lockCircle.Name = "LockCircle"
--- 225 像素半径，直径就是 450
-lockCircle.Size = UDim2.new(0, 450, 0, 450)
-lockCircle.Position = UDim2.new(0.5, -225, 0.5, -225)
+lockCircle.Size = UDim2.new(0, 40, 0, 40)
+lockCircle.Position = UDim2.new(0.5, -20, 0.5, -20)
 lockCircle.BackgroundTransparency = 1
 lockCircle.Visible = false
 lockCircle.Parent = gui
 
 local circleStroke = Instance.new("UIStroke")
 circleStroke.Color = Color3.fromRGB(255, 255, 255)
-circleStroke.Thickness = 2
+circleStroke.Thickness = 1.5
 circleStroke.Transparency = 0.5
 circleStroke.Parent = lockCircle
 
 Instance.new("UICorner", lockCircle).CornerRadius = UDim.new(1, 0)
 
--- 内部小准星（可选，更好看）
+-- 中心小点
 local centerDot = Instance.new("Frame")
-centerDot.Size = UDim2.new(0, 4, 0, 4)
-centerDot.Position = UDim2.new(0.5, -2, 0.5, -2)
+centerDot.Size = UDim2.new(0, 2, 0, 2)
+centerDot.Position = UDim2.new(0.5, -1, 0.5, -1)
 centerDot.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
 centerDot.BackgroundTransparency = 0.5
 centerDot.Parent = lockCircle
 Instance.new("UICorner", centerDot).CornerRadius = UDim.new(1, 0)
 
 -- ==========================================
--- 2. 主界面 UI (加高版)
+-- 2. 主界面 UI
 -- ==========================================
 local main = Instance.new("Frame")
 main.Size = UDim2.new(0, 240, 0, 300)
@@ -70,7 +69,7 @@ local title = Instance.new("TextLabel", top)
 title.Size = UDim2.new(1, -40, 1, 0)
 title.Position = UDim2.new(0, 10, 0, 0)
 title.BackgroundTransparency = 1
-title.Text = " 视觉与战斗 V3"
+title.Text = " 视觉与战斗 V4"
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Font = Enum.Font.GothamBold
@@ -86,21 +85,13 @@ closeBtn.Font = Enum.Font.GothamBold
 closeBtn.TextSize = 14
 
 -- ==========================================
--- 3. 状态逻辑
+-- 3. 状态与核心逻辑
 -- ==========================================
 local espEnabled = false
 local aimbotEnabled = false
 local teamCheckEnabled = false
 local aimSpeedMode = 1
-local espDistanceMode = 1 -- 1:300, 2:800, 3:1500
 local activeHighlights = {}
-
--- 获取当前设定的透视距离
-local function getCurrentEspDist()
-    if espDistanceMode == 1 then return 300 
-    elseif espDistanceMode == 2 then return 800 
-    else return 1500 end
-end
 
 local function isTeammate(player)
     if not teamCheckEnabled then return false end
@@ -110,74 +101,62 @@ local function isTeammate(player)
     return false
 end
 
-local function createHighlight(char, player)
-    if not char then return end
-    if activeHighlights[char] then activeHighlights[char]:Destroy() end
-    
-    local hl = Instance.new("Highlight")
-    if isTeammate(player) then
-        hl.FillColor = Color3.fromRGB(0, 255, 0) 
-        hl.OutlineColor = Color3.fromRGB(0, 150, 0)
-    else
-        hl.FillColor = Color3.fromRGB(255, 0, 0) 
-        hl.OutlineColor = Color3.fromRGB(255, 255, 255)
-    end
-    hl.FillTransparency = 0.5
-    hl.OutlineTransparency = 0
-    hl.Parent = char
-    activeHighlights[char] = hl
-end
-
--- 自动刷新与距离检测逻辑
+-- 【高光重构】：直接强制赋予，忽略距离，绝对穿透
 local function updateESP()
-    if not espEnabled or not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then return end
-    local myPos = LocalPlayer.Character.HumanoidRootPart.Position
-    local maxDist = getCurrentEspDist()
-
+    if not espEnabled then return end
+    
     for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
+        if player ~= LocalPlayer and player.Character then
             local char = player.Character
-            local dist = (char.HumanoidRootPart.Position - myPos).Magnitude
+            local existing = char:FindFirstChild("HavvkHighlight")
             
-            -- 如果超出距离，销毁高光
-            if dist > maxDist then
-                if activeHighlights[char] then
-                    activeHighlights[char]:Destroy()
-                    activeHighlights[char] = nil
-                end
-            else
-                -- 如果在距离内，没有高光就创建，有但颜色不对就刷新
-                local existing = activeHighlights[char]
-                if not existing or not existing.Parent then
-                    createHighlight(char, player)
+            -- 如果没有高光，或者颜色不对，就强制加上/覆盖
+            if not existing or existing.FillColor ~= (isTeammate(player) and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)) then
+                if existing then existing:Destroy() end
+                
+                local hl = Instance.new("Highlight")
+                hl.Name = "HavvkHighlight"
+                hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop -- 【核心】：绝对穿墙，永不闪烁
+                hl.FillTransparency = 0.4
+                hl.OutlineTransparency = 0
+                
+                if isTeammate(player) then
+                    hl.FillColor = Color3.fromRGB(0, 255, 0) 
+                    hl.OutlineColor = Color3.fromRGB(0, 200, 0)
                 else
-                    if isTeammate(player) and existing.FillColor ~= Color3.fromRGB(0, 255, 0) then
-                        createHighlight(char, player)
-                    elseif not isTeammate(player) and existing.FillColor ~= Color3.fromRGB(255, 0, 0) then
-                        createHighlight(char, player)
-                    end
+                    hl.FillColor = Color3.fromRGB(255, 0, 0) 
+                    hl.OutlineColor = Color3.fromRGB(255, 50, 50)
                 end
+                hl.Parent = char
             end
         end
     end
 end
 
--- 每 1 秒自动扫描全场
-task.spawn(function()
-    while task.wait(1) do
+-- 绑定重生事件（极速上色）
+local function onCharacterAdded(char, player)
+    if espEnabled then
+        task.wait(0.1)
         updateESP()
     end
+end
+
+for _, p in ipairs(Players:GetPlayers()) do
+    if p ~= LocalPlayer then
+        p.CharacterAdded:Connect(function(c) onCharacterAdded(c, p) end)
+    end
+end
+Players.PlayerAdded:Connect(function(p)
+    p.CharacterAdded:Connect(function(c) onCharacterAdded(c, p) end)
 end)
 
--- ==========================================
--- 4. 智能吸附自瞄 (FOV 225)
--- ==========================================
+-- 自瞄视觉圈判断
 local function getClosestEnemyInFOV()
     local closestDist = math.huge
     local target = nil
     local cam = workspace.CurrentCamera
     local screenCenter = Vector2.new(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
-    local fovRadius = 225 -- 【修改】：吸附范围 225 像素
+    local fovRadius = 150 -- 自瞄范围恢复到 150，手感更好
 
     for _, player in ipairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character and not isTeammate(player) then
@@ -215,13 +194,12 @@ local aimbotConnection = RunService.RenderStepped:Connect(function()
         local camera = workspace.CurrentCamera
         local targetCFrame = CFrame.lookAt(camera.CFrame.Position, targetHead.Position)
         
-        -- 【修改】：大幅提高吸附速度
         if aimSpeedMode == 1 then
-            camera.CFrame = targetCFrame -- 秒锁
+            camera.CFrame = targetCFrame
         elseif aimSpeedMode == 2 then
-            camera.CFrame = camera.CFrame:Lerp(targetCFrame, 0.85) -- 极快
+            camera.CFrame = camera.CFrame:Lerp(targetCFrame, 0.85)
         else
-            camera.CFrame = camera.CFrame:Lerp(targetCFrame, 0.6) -- 较快
+            camera.CFrame = camera.CFrame:Lerp(targetCFrame, 0.6)
         end
     else
         circleStroke.Color = Color3.fromRGB(255, 255, 255)
@@ -230,7 +208,7 @@ local aimbotConnection = RunService.RenderStepped:Connect(function()
 end)
 
 -- ==========================================
--- 5. UI 事件
+-- 4. UI 事件
 -- ==========================================
 local function createUIButton(text, yPos, color)
     local btn = Instance.new("TextButton", main)
@@ -249,15 +227,22 @@ local espBtn = createUIButton("玩家高光 (ESP) [关]", 45)
 local aimBtn = createUIButton("自动瞄准 (Aimbot) [关]", 95)
 local speedBtn = createUIButton("自瞄速度: 1档 (秒锁)", 145, Color3.fromRGB(60, 60, 60))
 local teamBtn = createUIButton("阵营区分: [关] (全红)", 195, Color3.fromRGB(60, 60, 60))
-local distBtn = createUIButton("高光距离: 300", 245, Color3.fromRGB(60, 60, 60)) -- 新按钮
+local clearBtn = createUIButton("强制刷新高光", 245, Color3.fromRGB(100, 100, 100))
 
 espBtn.MouseButton1Click:Connect(function()
     espEnabled = not espEnabled
     espBtn.BackgroundColor3 = espEnabled and Color3.fromRGB(0, 150, 80) or Color3.fromRGB(50, 50, 50)
     espBtn.Text = espEnabled and "玩家高光 (ESP) [开]" or "玩家高光 (ESP) [关]"
-    if espEnabled then updateESP() else
-        for char, hl in pairs(activeHighlights) do hl:Destroy() end
-        table.clear(activeHighlights)
+    
+    if espEnabled then 
+        updateESP() 
+    else
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character then
+                local hl = p.Character:FindFirstChild("HavvkHighlight")
+                if hl then hl:Destroy() end
+            end
+        end
     end
 end)
 
@@ -283,26 +268,26 @@ teamBtn.MouseButton1Click:Connect(function()
     updateESP()
 end)
 
--- 高光距离切换逻辑
-distBtn.MouseButton1Click:Connect(function()
-    espDistanceMode = espDistanceMode + 1
-    if espDistanceMode > 3 then espDistanceMode = 1 end
-    
-    if espDistanceMode == 1 then distBtn.Text = "高光距离: 300"
-    elseif espDistanceMode == 2 then distBtn.Text = "高光距离: 800"
-    else distBtn.Text = "高光距离: 1500" end
-    
-    updateESP() -- 切换后立刻刷新
+clearBtn.MouseButton1Click:Connect(function()
+    updateESP()
+    clearBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 80)
+    task.wait(0.2)
+    clearBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
 end)
 
 -- ==========================================
--- 6. 清理与拖拽
+-- 5. 清理与拖拽
 -- ==========================================
 local function cleanup()
     espEnabled = false
     aimbotEnabled = false
     if aimbotConnection then aimbotConnection:Disconnect() end
-    for char, hl in pairs(activeHighlights) do hl:Destroy() end
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character then
+            local hl = p.Character:FindFirstChild("HavvkHighlight")
+            if hl then hl:Destroy() end
+        end
+    end
     gui:Destroy()
 end
 
