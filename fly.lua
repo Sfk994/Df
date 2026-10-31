@@ -153,4 +153,122 @@ plusCorner.Parent = plusBtn
 minusBtn.MouseButton1Click:Connect(function()
     if flySpeed > 10 then
         flySpeed = flySpeed - 10
-        speedLabel.Text = "当前速度: " 
+        speedLabel.Text = "当前速度: " .. flySpeed
+    end
+end)
+
+plusBtn.MouseButton1Click:Connect(function()
+    if flySpeed < 200 then
+        flySpeed = flySpeed + 10
+        speedLabel.Text = "当前速度: " .. flySpeed
+    end
+end)
+
+noclipBtn.MouseButton1Click:Connect(function()
+    isNoclip = not isNoclip
+    if isNoclip then
+        noclipBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 80)
+        noclipBtn.Text = "旋转穿墙 [开]"
+    else
+        noclipBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        noclipBtn.Text = "旋转穿墙 [关]"
+    end
+end)
+
+toggleBtn.MouseButton1Click:Connect(function()
+    flying = not flying
+    
+    if flying then
+        local char = LocalPlayer.Character
+        if not char or not char:FindFirstChild("HumanoidRootPart") then 
+            flying = false
+            return 
+        end
+        
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 80)
+        toggleBtn.Text = "开启飞行 [开]"
+        
+        local hrp = char.HumanoidRootPart
+        
+        -- 用 pcall 包裹物理实例创建，防止执行器禁用API导致崩溃
+        local success = pcall(function()
+            bv = Instance.new("BodyVelocity")
+            bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+            bv.Velocity = Vector3.new(0,0,0)
+            bv.Parent = hrp
+            
+            bg = Instance.new("BodyGyro")
+            bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+            bg.P = 1000
+            bg.Parent = hrp
+        end)
+        
+        if not success then
+            -- 如果创建失败，自动关闭并提示
+            flying = false
+            toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+            toggleBtn.Text = "开启飞行 [关]"
+            return
+        end
+        
+        RenderConnection = RunService.RenderStepped:Connect(function()
+            if not flying or not bv or not bg then return end
+            local c = LocalPlayer.Character
+            local cam = workspace.CurrentCamera -- 每次循环都重新获取，防止卡 nil
+            if c and c:FindFirstChild("Humanoid") and cam then
+                local moveDir = c.Humanoid.MoveDirection
+                
+                -- 解决坐标反向问题
+                local finalVelocity = (cam.CFrame.LookVector * moveDir.Z + cam.CFrame.RightVector * moveDir.X) * flySpeed * -1
+                bv.Velocity = finalVelocity
+                
+                -- 解决 tick() 为 nil 的问题，改用 os.clock()
+                if isNoclip then
+                    local spin = os.clock() * 10000
+                    bg.CFrame = cam.CFrame * CFrame.Angles(math.rad(spin), math.rad(spin), 0)
+                else
+                    bg.CFrame = cam.CFrame
+                end
+            end
+        end)
+        
+    else
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        toggleBtn.Text = "开启飞行 [关]"
+        stopFlying()
+    end
+end)
+
+LocalPlayer.CharacterAdded:Connect(function()
+    if flying then
+        stopFlying()
+        toggleBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        toggleBtn.Text = "开启飞行 [关]"
+        noclipBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        noclipBtn.Text = "旋转穿墙 [关]"
+        isNoclip = false
+    end
+end)
+
+local dragging, dragInput, dragStart, startPos
+topBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        dragging = true
+        dragStart = input.Position
+        startPos = mainFrame.Position
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then dragging = false end
+        end)
+    end
+end)
+topBar.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        dragInput = input
+    end
+end)
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
