@@ -51,9 +51,10 @@ closeBtn.TextSize = 14
 
 local flying, isNoclip = false, false
 local flySpeed = 50
-local bv, bg, renderConn
+local bv
+local renderConn
 
--- 恢复碰撞体积的函数
+-- 恢复碰撞
 local function restoreCollision()
     if LocalPlayer.Character then
         for _, v in pairs(LocalPlayer.Character:GetDescendants()) do
@@ -67,9 +68,8 @@ end
 local function stopFly()
     flying = false
     if bv then bv:Destroy() bv = nil end
-    if bg then bg:Destroy() bg = nil end
     if renderConn then renderConn:Disconnect() renderConn = nil end
-    restoreCollision() -- 关闭飞行时恢复碰撞
+    restoreCollision()
 end
 
 closeBtn.MouseButton1Click:Connect(function()
@@ -152,47 +152,43 @@ flyBtn.MouseButton1Click:Connect(function()
         flyBtn.Text = "开启飞行 [开]"
         local hrp = char.HumanoidRootPart
         
+        -- 开启时，如果处于穿墙模式，直接取消碰撞
+        if isNoclip then
+            for _, v in pairs(char:GetDescendants()) do
+                if v:IsA("BasePart") then v.CanCollide = false end
+            end
+        end
+
         bv = Instance.new("BodyVelocity")
         bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
         bv.Parent = hrp
-        bg = Instance.new("BodyGyro")
-        bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-        bg.P = 1000
-        bg.Parent = hrp
         
-        renderConn = RunService.Stepped:Connect(function()
-            if not flying or not bv or not bg then return end
+        renderConn = RunService.RenderStepped:Connect(function()
+            if not flying or not bv then return end
             local c = LocalPlayer.Character
-            local cam = workspace.CurrentCamera
+            if not c or not c:FindFirstChild("Humanoid") then return end
             
-            -- 穿墙逻辑：每帧强制关闭碰撞体积
-            if c and isNoclip then
+            -- 强制穿墙逻辑（持续每帧取消碰撞）
+            if isNoclip then
                 for _, v in pairs(c:GetDescendants()) do
-                    if v:IsA("BasePart") then
+                    if v:IsA("BasePart") and v.CanCollide then
                         v.CanCollide = false
                     end
                 end
             end
 
-            if c and c:FindFirstChild("Humanoid") and cam then
-                local dir = c.Humanoid.MoveDirection
-                
-                -- 【方向彻底修复】
-                -- W(前)：dir.Z为-1，乘-1得1，向LookVector(相机前方)飞
-                -- S(后)：dir.Z为1，乘-1得-1，向后方飞
-                -- D(右)：dir.X为1，向RightVector(相机右方)飞
-                -- A(左)：dir.X为-1，向左方飞
-                local forward = cam.CFrame.LookVector * (dir.Z * -1)
-                local right = cam.CFrame.RightVector * dir.X
-                local moveVec = forward + right
-                
-                if moveVec.Magnitude > 0 then
-                    bv.Velocity = moveVec.Unit * flySpeed
-                else
-                    bv.Velocity = Vector3.new(0, 0, 0) -- 没推摇杆就悬停
-                end
-                
-                bg.CFrame = cam.CFrame
+            local dir = c.Humanoid.MoveDirection
+            
+            -- 【核心修改】：提取摇杆的水平方向，忽略相机俯仰
+            local flatDir = Vector3.new(dir.X, 0, dir.Z)
+            
+            -- 如果有水平方向的输入（推向摇杆）
+            if flatDir.Magnitude > 0.05 then
+                -- 归一化方向，乘以当前速度
+                bv.Velocity = flatDir.Unit * flySpeed
+            else
+                -- 如果没有输入，或者相机完全垂直导致无法算出水平（此时原地悬停）
+                bv.Velocity = Vector3.new(0, 0, 0)
             end
         end)
         
