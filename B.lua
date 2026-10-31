@@ -1,4 +1,3 @@
-loadstring(game:HttpGet("https://raw.githubusercontent.com/Sfk994/Df/refs/heads/main/C.lua"))()
 -- 获取当前时间
 local currentTime = os.date("%Y-%m-%d %H:%M:%S")
 
@@ -9,3 +8,4 @@ game:GetService("StarterGui"):SetCore("SendNotification", {
     Duration = 5; -- 弹窗停留时间（秒），5秒后自动消失
     Icon = "rbxassetid://6023426926" -- 可选：加个小图标（这是 Roblox 官方的信息图标）
 })
+loadstring(game:HttpGet("https://raw.githubusercontent.com/Sfk994/Df/refs/heads/main/C.lua"))()
