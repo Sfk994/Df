@@ -1,5 +1,5 @@
 -- ==========================================
--- Havvk科技 | 高级透视(高光+方框)与智能吸附自瞄
+-- Havvk科技 | 高级透视(高光+全包裹方框)与智能吸附自瞄
 -- ==========================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -16,9 +16,10 @@ local gui = Instance.new("ScreenGui")
 gui.Name = "Havvk_ESP_Aimbot"
 gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = true 
+gui.DisplayOrder = 999 -- 保证 UI 在最顶层，防止被游戏遮挡
 gui.Parent = PlayerGui
 
--- 专门用来存放方框的容器（放在底层防止挡住菜单）
+-- 专门用来存放方框的容器
 local boxContainer = Instance.new("Frame")
 boxContainer.Size = UDim2.new(1, 0, 1, 0)
 boxContainer.BackgroundTransparency = 1
@@ -51,7 +52,7 @@ centerDot.Parent = lockCircle
 Instance.new("UICorner", centerDot).CornerRadius = UDim.new(1, 0)
 
 -- ==========================================
--- 2. 主界面 UI (加高以容纳方框开关)
+-- 2. 主界面 UI
 -- ==========================================
 local main = Instance.new("Frame")
 main.Size = UDim2.new(0, 240, 0, 350)
@@ -72,7 +73,7 @@ local title = Instance.new("TextLabel", top)
 title.Size = UDim2.new(1, -40, 1, 0)
 title.Position = UDim2.new(0, 10, 0, 0)
 title.BackgroundTransparency = 1
-title.Text = " 视觉与战斗 V5"
+title.Text = " 视觉与战斗 V6"
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Font = Enum.Font.GothamBold
@@ -91,13 +92,13 @@ closeBtn.TextSize = 14
 -- 3. 状态逻辑
 -- ==========================================
 local espEnabled = false
-local boxEnabled = false -- 方框透视开关
+local boxEnabled = false 
 local aimbotEnabled = false
 local teamCheckEnabled = false
 local aimSpeedMode = 1
 
 local activeHighlights = {}
-local activeBoxes = {} -- 存储玩家对应的方框
+local activeBoxes = {} 
 
 local function isTeammate(player)
     if not teamCheckEnabled then return false end
@@ -131,7 +132,6 @@ local function updateESP()
     end
 end
 
--- 绑定重生事件
 for _, p in ipairs(Players:GetPlayers()) do
     if p ~= LocalPlayer then
         p.CharacterAdded:Connect(function() task.wait(0.2) updateESP() end)
@@ -140,67 +140,76 @@ end
 Players.PlayerAdded:Connect(function(p)
     p.CharacterAdded:Connect(function() task.wait(0.2) updateESP() end)
 end)
-
 -- ==========================================
--- 4. 2D方框透视逻辑 (RenderStepped)
+-- 4. 【全包裹方框透视】独立线程
 -- ==========================================
-RunService.RenderStepped:Connect(function()
-    if not boxEnabled then 
-        for _, box in pairs(activeBoxes) do
-            box.Visible = false
+task.spawn(function()
+    while task.wait(0.03) do -- 约 30 帧刷新，保证不卡顿
+        if not boxEnabled then 
+            for _, box in pairs(activeBoxes) do box.Visible = false end
+            continue
         end
-        return 
-    end
 
-    local cam = workspace.CurrentCamera
-    
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            local char = player.Character
-            local head = char:FindFirstChild("Head")
-            local humanoid = char:FindFirstChild("Humanoid")
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            
-            if head and humanoid and humanoid.Health > 0 and hrp then
-                -- 获取方框 UI 实例（没有就创建）
-                if not activeBoxes[player] then
-                    local box = Instance.new("Frame")
-                    box.BackgroundTransparency = 1
-                    box.BorderSizePixel = 1
-                    box.Parent = boxContainer
-                    activeBoxes[player] = box
-                end
+        local cam = workspace.CurrentCamera
+        if not cam then continue end
+        
+        for _, player in ipairs(Players:GetPlayers()) do
+            if player ~= LocalPlayer and player.Character then
+                local char = player.Character
+                local head = char:FindFirstChild("Head")
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                local humanoid = char:FindFirstChild("Humanoid")
                 
-                local box = activeBoxes[player]
-                local headPos, onScreen = cam:WorldToViewportPoint(head.Position)
-                -- 获取脚底大约位置 (RootPart 往下 2.5 格)
-                local footPos = cam:WorldToViewportPoint(hrp.Position - Vector3.new(0, 2.5, 0))
-                
-                if onScreen and headPos.Z > 0 then
-                    -- 计算方框大小和位置
-                    local height = math.abs(footPos.Y - headPos.Y)
-                    local width = height * 0.55 -- 比例协调
-                    local x = headPos.X - (width / 2)
-                    local y = headPos.Y
+                if head and hrp and humanoid and humanoid.Health > 0 then
+                    -- 创建方框 UI（使用 UIStroke 保证绝对渲染）
+                    if not activeBoxes[player] then
+                        local b = Instance.new("Frame")
+                        b.BackgroundTransparency = 1
+                        b.Parent = boxContainer
+                        local stroke = Instance.new("UIStroke")
+                        stroke.Thickness = 1.5
+                        stroke.Parent = b
+                        activeBoxes[player] = b
+                    end
+                    local box = activeBoxes[player]
                     
-                    box.Size = UDim2.new(0, width, 0, height)
-                    box.Position = UDim2.new(0, x, 0, y)
-                    box.BorderColor3 = isTeammate(player) and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
-                    box.Visible = true
+                    -- 获取头顶上方 0.5 格和脚底下方 3 格的位置
+                    local topPos = head.Position + Vector3.new(0, 0.5, 0)
+                    local bottomPos = hrp.Position - Vector3.new(0, 3, 0)
+                    
+                    local topScreen, onScreenTop = cam:WorldToViewportPoint(topPos)
+                    local bottomScreen, onScreenBottom = cam:WorldToViewportPoint(bottomPos)
+                    
+                    if onScreenTop and onScreenBottom and topScreen.Z > 0 then
+                        local height = math.abs(bottomScreen.Y - topScreen.Y)
+                        local width = height * 0.6 -- 宽度自动适配高度
+                        
+                        -- 如果太小或太远就隐藏
+                        if height < 10 then
+                            box.Visible = false
+                        else
+                            local x = topScreen.X - (width / 2)
+                            local y = topScreen.Y
+                            
+                            box.Size = UDim2.new(0, width, 0, height)
+                            box.Position = UDim2.new(0, x, 0, y)
+                            box.Visible = true
+                            
+                            -- 颜色同步
+                            box.UIStroke.Color = isTeammate(player) and Color3.fromRGB(0, 255, 0) or Color3.fromRGB(255, 0, 0)
+                        end
+                    else
+                        box.Visible = false
+                    end
                 else
-                    box.Visible = false
-                end
-            else
-                if activeBoxes[player] then
-                    activeBoxes[player].Visible = false
+                    if activeBoxes[player] then activeBoxes[player].Visible = false end
                 end
             end
         end
     end
 end)
-
 -- ==========================================
--- 5. 智能吸附自瞄 (FOV 150)
+-- 5. 智能吸附自瞄
 -- ==========================================
 local function getClosestEnemyInFOV()
     local closestDist = math.huge
@@ -257,6 +266,7 @@ local aimbotConnection = RunService.RenderStepped:Connect(function()
         circleStroke.Transparency = 0.5
     end
 end)
+
 -- ==========================================
 -- 6. UI 事件
 -- ==========================================
@@ -274,7 +284,7 @@ local function createUIButton(text, yPos, color)
 end
 
 local espBtn = createUIButton("高光透视 (ESP) [关]", 45)
-local boxBtn = createUIButton("方框透视 (Box) [关]", 95) -- 新增方框按钮
+local boxBtn = createUIButton("方框透视 (Box) [关]", 95) 
 local aimBtn = createUIButton("自动瞄准 (Aimbot) [关]", 145)
 local speedBtn = createUIButton("自瞄速度: 1档 (秒锁)", 195, Color3.fromRGB(60, 60, 60))
 local teamBtn = createUIButton("阵营区分: [关] (全红)", 245, Color3.fromRGB(60, 60, 60))
@@ -323,7 +333,6 @@ teamBtn.MouseButton1Click:Connect(function()
     teamBtn.Text = teamCheckEnabled and "阵营区分: [开] (队友绿)" or "阵营区分: [关] (全红)"
     updateESP()
 end)
-
 -- ==========================================
 -- 7. 清理与拖拽
 -- ==========================================
