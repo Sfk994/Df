@@ -1,5 +1,5 @@
 -- ==========================================
--- Havvk科技 | 极简飞车模式 (UI方向键版)
+-- Havvk科技 | 真实载具飞行 (直接开游戏里的车)
 -- ==========================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -8,22 +8,22 @@ local LocalPlayer = Players.LocalPlayer
 local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui") or LocalPlayer:WaitForChild("PlayerGui", 5)
 if not PlayerGui then return end
 
-if PlayerGui:FindFirstChild("Havvk_CarMode") then
-    PlayerGui.Havvk_CarMode:Destroy()
+if PlayerGui:FindFirstChild("Havvk_VehicleFly") then
+    PlayerGui.Havvk_VehicleFly:Destroy()
 end
 
 local gui = Instance.new("ScreenGui")
-gui.Name = "Havvk_CarMode"
+gui.Name = "Havvk_VehicleFly"
 gui.ResetOnSpawn = false
 gui.IgnoreGuiInset = true 
 gui.Parent = PlayerGui
 
 -- ==========================================
--- 主界面
+-- 主界面 UI
 -- ==========================================
 local main = Instance.new("Frame")
-main.Size = UDim2.new(0, 260, 0, 360)
-main.Position = UDim2.new(0.5, -130, 0.5, -180)
+main.Size = UDim2.new(0, 260, 0, 380)
+main.Position = UDim2.new(0.5, -130, 0.5, -190)
 main.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
 main.BorderSizePixel = 0
 main.ClipsDescendants = true
@@ -41,7 +41,7 @@ local title = Instance.new("TextLabel", top)
 title.Size = UDim2.new(1, -40, 1, 0)
 title.Position = UDim2.new(0, 10, 0, 0)
 title.BackgroundTransparency = 1
-title.Text = " 飞车模式 (方向键驾驶)"
+title.Text = " 真实载具飞行"
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.TextXAlignment = Enum.TextXAlignment.Left
 title.Font = Enum.Font.GothamBold
@@ -59,80 +59,88 @@ closeBtn.TextSize = 14
 -- ==========================================
 -- 状态变量
 -- ==========================================
-local isDriving = false
-local carSpeed = 50
-local bv, bg
+local isFlying = false
+local flySpeed = 60
+local vBv, vBg
 local driveConn
+local currentVehicleRoot = nil
 
--- 方向键状态 (支持键盘和屏幕按键同时触发)
-local keys = { W = false, A = false, S = false, D = false }
+local keys = { W = false, A = false, S = false, D = false, Up = false, Down = false }
 
 -- ==========================================
--- 核心物理逻辑
+-- 核心载具飞行逻辑
 -- ==========================================
-local function startDrive()
-    isDriving = true
+local function stopVehicleFly()
+    isFlying = false
+    keys.W, keys.A, keys.S, keys.D, keys.Up, keys.Down = false, false, false, false, false, false
+    
+    if vBv then vBv:Destroy() vBv = nil end
+    if vBg then vBg:Destroy() vBg = nil end
+    if driveConn then driveConn:Disconnect() driveConn = nil end
+    
+    currentVehicleRoot = nil
+end
+
+local function startVehicleFly()
     local char = LocalPlayer.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+    local humanoid = char and char:FindFirstChild("Humanoid")
     
-    local hrp = char.HumanoidRootPart
-    
-    -- 使用经典物理引擎，稳定不卡
-    bv = Instance.new("BodyVelocity")
-    bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-    bv.Velocity = Vector3.new(0, 0, 0)
-    bv.Parent = hrp
-    
-    bg = Instance.new("BodyGyro")
-    bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-    bg.P = 5000
-    bg.Parent = hrp
-    
-    -- 开启防摔死状态（部分游戏需要，如果这游戏不需要可以删掉这行）
-    local humanoid = char:FindFirstChild("Humanoid")
-    if humanoid then humanoid.PlatformStand = true end
+    -- 检测是否坐进了载具
+    if not humanoid or not humanoid.SeatPart then
+        return game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "提示"; Text = "请先坐进一辆车！"; Duration = 3
+        })
+    end
 
+    -- 获取载具的本体 (AssemblyRootPart 是最稳的受力点)
+    local seat = humanoid.SeatPart
+    local vehicleRoot = seat.AssemblyRootPart or seat
+    currentVehicleRoot = vehicleRoot
+
+    isFlying = true
+
+    -- 给车加上飞行物理
+    vBv = Instance.new("BodyVelocity")
+    vBv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+    vBv.Velocity = Vector3.new(0, 0, 0)
+    vBv.Parent = vehicleRoot
+    
+    vBg = Instance.new("BodyGyro")
+    vBg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+    vBg.P = 10000
+    vBg.D = 500
+    vBg.Parent = vehicleRoot
+
+    -- 核心飞行循环
     driveConn = RunService.Heartbeat:Connect(function()
-        if not isDriving or not bv or not bg then return end
-        local c = LocalPlayer.Character
+        if not isFlying or not vBv or not vBg or not currentVehicleRoot or not currentVehicleRoot.Parent then 
+            return 
+        end
+        
         local cam = workspace.CurrentCamera
-        if not c or not c:FindFirstChild("HumanoidRootPart") or not cam then return end
+        if not cam then return end
 
-        -- 根据相机视野计算移动方向 (剔除Y轴，纯平面飞车)
         local moveDir = Vector3.new(0, 0, 0)
         
+        -- 水平方向 (基于相机视角)
         if keys.W then moveDir = moveDir + cam.CFrame.LookVector end
         if keys.S then moveDir = moveDir - cam.CFrame.LookVector end
         if keys.D then moveDir = moveDir + cam.CFrame.RightVector end
         if keys.A then moveDir = moveDir - cam.CFrame.RightVector end
-
-        -- 剔除爬坡时的上下方向分量，保持纯水平飞车
-        moveDir = Vector3.new(moveDir.X, 0, moveDir.Z)
+        
+        -- 垂直方向
+        if keys.Up then moveDir = moveDir + Vector3.new(0, 1, 0) end
+        if keys.Down then moveDir = moveDir - Vector3.new(0, 1, 0) end
 
         if moveDir.Magnitude > 0 then
-            -- 归一化并乘以速度
-            bv.Velocity = moveDir.Unit * carSpeed
+            vBv.Velocity = moveDir.Unit * flySpeed
         else
-            -- 没按方向键时悬停
-            bv.Velocity = Vector3.new(0, 0, 0)
+            vBv.Velocity = Vector3.new(0, 0, 0) -- 悬停
         end
         
-        -- 强制视角水平，防止车翻
-        bg.CFrame = CFrame.new(cam.CFrame.Position, cam.CFrame.Position + cam.CFrame.LookVector)
+        -- 强制车身保持水平，防侧翻
+        vBg.CFrame = CFrame.new(currentVehicleRoot.Position, currentVehicleRoot.Position + cam.CFrame.LookVector)
     end)
-end
-
-local function stopDrive()
-    isDriving = false
-    keys.W, keys.A, keys.S, keys.D = false, false, false, false
-    if bv then bv:Destroy() bv = nil end
-    if bg then bg:Destroy() bg = nil end
-    if driveConn then driveConn:Disconnect() driveConn = nil end
-    
-    local char = LocalPlayer.Character
-    if char and char:FindFirstChild("Humanoid") then
-        char.Humanoid.PlatformStand = false
-    end
 end
 
 -- ==========================================
@@ -151,95 +159,115 @@ local function createUIButton(text, pos, size, color)
     return btn
 end
 
--- 开关和速度控制
-local driveBtn = createUIButton("开启飞车 [关]", UDim2.new(0, 10, 0, 45), UDim2.new(1, -20, 0, 40))
-local spdLabel = createUIButton("当前速度: " .. carSpeed, UDim2.new(0, 10, 0, 95), UDim2.new(1, -20, 0, 30), Color3.fromRGB(40, 40, 40))
+local flyBtn = createUIButton("检测载具并起飞 [关]", UDim2.new(0, 10, 0, 45), UDim2.new(1, -20, 0, 40))
+local spdLabel = createUIButton("速度: " .. flySpeed, UDim2.new(0, 10, 0, 95), UDim2.new(1, -20, 0, 30), Color3.fromRGB(40, 40, 40))
 local minusBtn = createUIButton("-", UDim2.new(0, 10, 0, 135), UDim2.new(0, 50, 0, 30), Color3.fromRGB(60, 60, 60))
 local plusBtn = createUIButton("+", UDim2.new(1, -60, 0, 135), UDim2.new(0, 50, 0, 30), Color3.fromRGB(60, 60, 60))
 
--- 方向键按钮 (十字布局)
-local wBtn = createUIButton("W (前)", UDim2.new(0.5, -40, 0, 190), UDim2.new(0, 80, 0, 40), Color3.fromRGB(80, 80, 80))
-local aBtn = createUIButton("A (左)", UDim2.new(0, 25, 0, 240), UDim2.new(0, 60, 0, 40), Color3.fromRGB(80, 80, 80))
-local sBtn = createUIButton("S (后)", UDim2.new(0.5, -40, 0, 240), UDim2.new(0, 80, 0, 40), Color3.fromRGB(80, 80, 80))
-local dBtn = createUIButton("D (右)", UDim2.new(1, -85, 0, 240), UDim2.new(0, 60, 0, 40), Color3.fromRGB(80, 80, 80))
+-- 控制方向键
+local wBtn = createUIButton("W (前)", UDim2.new(0.5, -40, 0, 185), UDim2.new(0, 80, 0, 35), Color3.fromRGB(80, 80, 80))
+local aBtn = createUIButton("A (左)", UDim2.new(0, 25, 0, 230), UDim2.new(0, 60, 0, 35), Color3.fromRGB(80, 80, 80))
+local sBtn = createUIButton("S (后)", UDim2.new(0.5, -40, 0, 230), UDim2.new(0, 80, 0, 35), Color3.fromRGB(80, 80, 80))
+local dBtn = createUIButton("D (右)", UDim2.new(1, -85, 0, 230), UDim2.new(0, 60, 0, 35), Color3.fromRGB(80, 80, 80))
+
+-- 垂直升降键
+local upBtn = createUIButton("↑ 上升", UDim2.new(0, 25, 0, 285), UDim2.new(0, 95, 0, 35), Color3.fromRGB(0, 120, 200))
+local downBtn = createUIButton("↓ 下降", UDim2.new(1, -120, 0, 285), UDim2.new(0, 95, 0, 35), Color3.fromRGB(200, 80, 80))
 
 -- ==========================================
 -- 交互逻辑
 -- ==========================================
 
--- 绑定屏幕按键 (支持触摸和鼠标按住)
-local function bindDriveBtn(btn, key)
+-- 绑定屏幕按钮
+local function bindBtn(btn, key, activeColor)
     btn.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             keys[key] = true
-            btn.BackgroundColor3 = Color3.fromRGB(0, 150, 80)
+            btn.BackgroundColor3 = activeColor or Color3.fromRGB(0, 150, 80)
         end
     end)
     btn.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             keys[key] = false
-            btn.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+            btn.BackgroundColor3 = (key == "Up" and Color3.fromRGB(0, 120, 200)) or (key == "Down" and Color3.fromRGB(200, 80, 80)) or Color3.fromRGB(80, 80, 80)
         end
     end)
 end
 
-bindDriveBtn(wBtn, "W")
-bindDriveBtn(aBtn, "A")
-bindDriveBtn(sBtn, "S")
-bindDriveBtn(dBtn, "D")
+bindBtn(wBtn, "W")
+bindBtn(aBtn, "A")
+bindBtn(sBtn, "S")
+bindBtn(dBtn, "D")
+bindBtn(upBtn, "Up")
+bindBtn(downBtn, "Down")
 
--- 绑定键盘按键
+-- 键盘绑定
 UserInputService.InputBegan:Connect(function(input, gpe)
-    if gpe or not isDriving then return end
+    if gpe or not isFlying then return end
     if input.KeyCode == Enum.KeyCode.W then keys.W = true end
     if input.KeyCode == Enum.KeyCode.A then keys.A = true end
     if input.KeyCode == Enum.KeyCode.S then keys.S = true end
     if input.KeyCode == Enum.KeyCode.D then keys.D = true end
+    if input.KeyCode == Enum.KeyCode.Space then keys.Up = true end
+    if input.KeyCode == Enum.KeyCode.LeftShift then keys.Down = true end
 end)
 UserInputService.InputEnded:Connect(function(input)
     if input.KeyCode == Enum.KeyCode.W then keys.W = false end
     if input.KeyCode == Enum.KeyCode.A then keys.A = false end
     if input.KeyCode == Enum.KeyCode.S then keys.S = false end
     if input.KeyCode == Enum.KeyCode.D then keys.D = false end
+    if input.KeyCode == Enum.KeyCode.Space then keys.Up = false end
+    if input.KeyCode == Enum.KeyCode.LeftShift then keys.Down = false end
 end)
 
 -- 主开关
-driveBtn.MouseButton1Click:Connect(function()
-    isDriving = not isDriving
-    driveBtn.BackgroundColor3 = isDriving and Color3.fromRGB(0, 150, 80) or Color3.fromRGB(50, 50, 50)
-    driveBtn.Text = isDriving and "开启飞车 [开]" or "开启飞车 [关]"
-    
-    if isDriving then
-        startDrive()
+flyBtn.MouseButton1Click:Connect(function()
+    if not isFlying then
+        local char = LocalPlayer.Character
+        local humanoid = char and char:FindFirstChild("Humanoid")
+        
+        -- 如果不在车上，拦截并提示
+        if not humanoid or not humanoid.SeatPart then
+            game:GetService("StarterGui"):SetCore("SendNotification", {
+                Title = "操作失败"; Text = "你必须先坐进游戏里的载具！"; Duration = 3
+            })
+            return
+        end
+        
+        startVehicleFly()
+        flyBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 80)
+        flyBtn.Text = "飞行中 [开]"
     else
-        stopDrive()
+        stopVehicleFly()
+        flyBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        flyBtn.Text = "检测载具并起飞 [关]"
     end
 end)
 
--- 速度加减
 minusBtn.MouseButton1Click:Connect(function()
-    if carSpeed > 10 then carSpeed = carSpeed - 10; spdLabel.Text = "当前速度: " .. carSpeed end
+    if flySpeed > 10 then flySpeed = flySpeed - 10; spdLabel.Text = "速度: " .. flySpeed end
 end)
 plusBtn.MouseButton1Click:Connect(function()
-    if carSpeed < 300 then carSpeed = carSpeed + 10; spdLabel.Text = "当前速度: " .. carSpeed end
+    if flySpeed < 300 then flySpeed = flySpeed + 10; spdLabel.Text = "速度: " .. flySpeed end
 end)
 -- ==========================================
 -- 清理与拖拽
 -- ==========================================
 local function cleanup()
-    stopDrive()
+    stopVehicleFly()
     gui:Destroy()
 end
 
 closeBtn.MouseButton1Click:Connect(cleanup)
 LocalPlayer.CharacterAdded:Connect(function()
-    if isDriving then
-        stopDrive()
-        driveBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-        driveBtn.Text = "开启飞车 [关]"
+    if isFlying then
+        stopVehicleFly()
+        flyBtn.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+        flyBtn.Text = "检测载具并起飞 [关]"
     end
 end)
 
+-- 拖拽逻辑
 local drag, dragStart, startPos
 top.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
