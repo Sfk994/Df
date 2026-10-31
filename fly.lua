@@ -1,12 +1,19 @@
--- =========================================
--- Havvk科技 | 极简飞行模块 (方向修正完美版)
--- =========================================
+-- ==========================================
+-- Havvk科技 | 极简飞行模块 (BodyVelocity稳定版)
+-- ==========================================
 local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
+-- 安全获取 PlayerGui，防止部分执行器报错
+local PlayerGui = LocalPlayer:FindFirstChild("PlayerGui")
+if not PlayerGui then
+    PlayerGui = LocalPlayer:WaitForChild("PlayerGui", 5)
+end
+if not PlayerGui then return end
+
+-- 清理旧 UI
 if PlayerGui:FindFirstChild("Havvk_FlyModule") then
     PlayerGui:FindFirstChild("Havvk_FlyModule"):Destroy()
 end
@@ -58,13 +65,13 @@ closeBtn.Parent = topBar
 
 local flying = false
 local flySpeed = 50
-local velocity, align
+local bv, bg
 local RenderConnection
 
 local function stopFlying()
     flying = false
-    if velocity then velocity:Destroy() velocity = nil end
-    if align then align:Destroy() align = nil end
+    if bv then bv:Destroy() bv = nil end
+    if bg then bg:Destroy() bg = nil end
     if RenderConnection then RenderConnection:Disconnect() RenderConnection = nil end
 end
 
@@ -154,8 +161,4 @@ toggleBtn.MouseButton1Click:Connect(function()
         end
         
         toggleBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 80)
-        toggleBtn.Text = "开启飞行 [开]"
-        
-        local hrp = char.HumanoidRootPart
-        
-        velocity = Instance.new("Lin
+   
