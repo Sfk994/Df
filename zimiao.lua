@@ -1,5 +1,5 @@
 -- ==========================================
--- Havvk科技 | 高级透视(高光+方框)与智能吸附自瞄67
+-- Havvk科技 | 高级透视(高光+方框)与智能吸附自瞄6
 -- ==========================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
