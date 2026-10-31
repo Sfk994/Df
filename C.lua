@@ -96,6 +96,25 @@ MainTab:Button({
 })
 
 MainTab:Button({
+    Title = "点击传送",
+    Desc = "Tp",
+    Callback = function()
+        -- ⚠️ 预留位置：把你分开做的功能B的 Raw 链接填到这里
+        local url = "https://raw.githubusercontent.com/你的用户名/你的仓库/main/功能B.lua?v=1"
+        
+        if string.find(url, "你的用户名") then
+            return game:GetService("StarterGui"):SetCore("SendNotification", {Title="提示", Text="功能B链接尚未配置", Duration=3})
+        end
+
+        task.spawn(function()
+            pcall(function()
+                loadstring(game:HttpGet(url))()
+            end)
+        end)
+    end
+})
+
+MainTab:Button({
     Title = "加载功能 B",
     Desc = "点击运行独立的功能脚本 B",
     Callback = function()
