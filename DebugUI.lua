@@ -1,6 +1,6 @@
 --[[
 	==============================================================
-	  DebugUI · Roblox 调试面板 v1.2
+	  DebugUI · Roblox 调试面板 v1.4
 	==============================================================
 	  使用方法：
 	    1. 在 StarterGui 里新建一个 LocalScript
@@ -8,12 +8,12 @@
 	    3. 运行游戏
 
 	  交互：
-	    · 按住顶部标题栏拖动窗口（拖动时不会带动镜头）
-	    · 右下角拖拽可自由缩放窗口大小
-	    · 「−」最小化（只剩时间 + 放大 + 关闭）
-	    · 「□」最大化 / 还原
-	    · 「×」关闭，右下角小按钮或 F2 唤回
-	    · 左侧「主功能 / 设置」切换右侧卡片，设置里有重载和日志
+	    · 底部小白条长按拖动窗口（标题栏也可以拖），拖动时不会带动镜头
+	    · 右下角半透明三角拖拽可自由缩放窗口大小
+	    · 右上角三个圆点（mac 风）：黄 = 最小化，绿 = 最大化 / 还原，红 = 关闭
+	    · 窗口边框是一圈缓慢旋转的细彩虹线
+	    · 最小化后收缩成一个小胶囊，只留时间 + 放大 + 关闭
+	    · 左侧「主功能 / 设置」切换右侧内容；主功能为 2×2 卡片，窗口变窄自动变 1×4
 
 	  对外接口：
 	    _G.DebugUI:Log("消息", "info")       -- info / success / warn / error
@@ -36,13 +36,16 @@ local playerGui = player:WaitForChild("PlayerGui")
 --=============================================================
 local CONFIG = {
 	Title = "调试面板",
-	Subtitle = "管理员 · v1.2",
+	Subtitle = "管理员 · v1.4",
 	Width = 560,
 	Height = 400,
-	MinWidth = 380,
-	MinHeight = 300,
+	MinWidth = 300,
+	MinHeight = 280,
 	HeaderHeight = 52,
-	MinimizedHeight = 32,
+	BottomBarHeight = 16,
+	MinimizedHeight = 30,
+	MinimizedWidth = 152,
+	CardHeight = 66,
 	MaxLogLines = 150,
 }
 
@@ -60,6 +63,9 @@ local THEME = {
 	Green      = Color3.fromRGB(78, 201, 132),
 	Yellow     = Color3.fromRGB(240, 190, 90),
 	Red        = Color3.fromRGB(240, 96, 96),
+	DotRed     = Color3.fromRGB(255, 95, 87),
+	DotYellow  = Color3.fromRGB(254, 188, 46),
+	DotGreen   = Color3.fromRGB(40, 200, 64),
 }
 
 local LEVEL_COLORS = {
@@ -101,6 +107,32 @@ local function stroke(parent, color, thickness)
 	})
 end
 
+-- 细彩虹描边：UIGradient 挂在 UIStroke 上，靠旋转 Rotation 让颜色沿边框流动
+local RAINBOW = ColorSequence.new({
+	ColorSequenceKeypoint.new(0.00, Color3.fromRGB(255, 96, 128)),
+	ColorSequenceKeypoint.new(0.16, Color3.fromRGB(255, 170, 96)),
+	ColorSequenceKeypoint.new(0.32, Color3.fromRGB(246, 226, 116)),
+	ColorSequenceKeypoint.new(0.48, Color3.fromRGB(112, 224, 152)),
+	ColorSequenceKeypoint.new(0.64, Color3.fromRGB(96, 200, 255)),
+	ColorSequenceKeypoint.new(0.80, Color3.fromRGB(150, 140, 255)),
+	ColorSequenceKeypoint.new(1.00, Color3.fromRGB(255, 96, 128)),
+})
+
+local function rainbowStroke(parent, thickness)
+	local s = new("UIStroke", {
+		Color = Color3.fromRGB(255, 96, 128),
+		Thickness = thickness or 1,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		Parent = parent,
+	})
+	local grad = new("UIGradient", {
+		Color = RAINBOW,
+		Rotation = 0,
+		Parent = s,
+	})
+	return s, grad
+end
+
 local API = {}
 local log, showPage, openLog, closeLog, reloadPanel, setNavActive -- 前向声明
 
@@ -129,13 +161,13 @@ local window = new("Frame", {
 	Active = true,
 	Parent = gui,
 })
-corner(window, 10)
-stroke(window, THEME.Stroke, 1)
+corner(window, 12)
+local rainbowLine, rainbowGrad = rainbowStroke(window, 1.2)
 
 local uiScale = new("UIScale", { Scale = 1, Parent = window })
 
 --=============================================================
--- 顶部标题栏
+-- 顶部标题栏（mac 风格圆点，置于右侧）
 --=============================================================
 local header = new("Frame", {
 	Name = "Header",
@@ -145,24 +177,58 @@ local header = new("Frame", {
 	Active = true,
 	Parent = window,
 })
-corner(header, 10)
+corner(header, 12)
 new("Frame", {
-	Size = UDim2.new(1, 0, 0, 1),
-	Position = UDim2.new(0, 0, 0, CONFIG.HeaderHeight - 1),
+	Size = UDim2.new(1, -24, 0, 1),
+	Position = UDim2.new(0, 12, 0, CONFIG.HeaderHeight - 1),
 	BackgroundColor3 = THEME.Stroke,
+	BackgroundTransparency = 0.6,
 	BorderSizePixel = 0,
 	Parent = header,
 })
 
+local function makeDot(color, offsetX, glyph)
+	local btn = new("TextButton", {
+		Size = UDim2.fromOffset(12, 12),
+		AnchorPoint = Vector2.new(1, 0.5),
+		Position = UDim2.new(1, -offsetX, 0.5, 0),
+		BackgroundColor3 = color,
+		BorderSizePixel = 0,
+		AutoButtonColor = false,
+		Font = Enum.Font.GothamBold,
+		Text = "",
+		TextSize = 9,
+		TextColor3 = Color3.fromRGB(45, 45, 45),
+		Parent = header,
+	})
+	corner(btn, 6)
+
+	-- 悬停时像 macOS 一样浮现符号
+	btn.MouseEnter:Connect(function()
+		btn.Text = glyph
+		btn.Size = UDim2.fromOffset(13, 13)
+	end)
+	btn.MouseLeave:Connect(function()
+		btn.Text = ""
+		btn.Size = UDim2.fromOffset(12, 12)
+	end)
+	return btn
+end
+
+-- 右对齐，视觉顺序（左→右）：最小化 · 最大化 · 关闭
+local closeDot = makeDot(THEME.DotRed, 14, "×")
+local maxDot = makeDot(THEME.DotGreen, 34, "+")
+local minDot = makeDot(THEME.DotYellow, 54, "−")
+
 local logo = new("Frame", {
-	Size = UDim2.fromOffset(26, 26),
-	Position = UDim2.fromOffset(14, 13),
+	Size = UDim2.fromOffset(24, 24),
+	Position = UDim2.fromOffset(14, 14),
 	BackgroundColor3 = THEME.Accent,
 	BorderSizePixel = 0,
 	Active = true,
 	Parent = header,
 })
-corner(logo, 13)
+corner(logo, 12)
 new("UIGradient", {
 	Color = ColorSequence.new({
 		ColorSequenceKeypoint.new(0, Color3.fromRGB(120, 158, 255)),
@@ -176,14 +242,14 @@ new("TextLabel", {
 	BackgroundTransparency = 1,
 	Font = Enum.Font.GothamBold,
 	Text = "D",
-	TextSize = 13,
+	TextSize = 12,
 	TextColor3 = Color3.new(1, 1, 1),
 	Parent = logo,
 })
 
 local titleLabel = new("TextLabel", {
-	Size = UDim2.new(1, -220, 0, 17),
-	Position = UDim2.fromOffset(48, 10),
+	Size = UDim2.new(1, -126, 0, 17),
+	Position = UDim2.fromOffset(46, 10),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.GothamBold,
 	Text = CONFIG.Title,
@@ -196,8 +262,8 @@ local titleLabel = new("TextLabel", {
 })
 
 local subtitleLabel = new("TextLabel", {
-	Size = UDim2.new(1, -220, 0, 13),
-	Position = UDim2.fromOffset(48, 28),
+	Size = UDim2.new(1, -126, 0, 13),
+	Position = UDim2.fromOffset(46, 28),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.Gotham,
 	Text = CONFIG.Subtitle,
@@ -209,13 +275,14 @@ local subtitleLabel = new("TextLabel", {
 	Parent = header,
 })
 
+-- 最小化胶囊里显示的时间
 local clockLabel = new("TextLabel", {
-	Size = UDim2.new(1, -160, 1, 0),
-	Position = UDim2.fromOffset(14, 0),
+	Size = UDim2.new(1, -78, 1, 0),
+	Position = UDim2.fromOffset(16, 0),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.Code,
 	Text = os.date("%H:%M:%S"),
-	TextSize = 13,
+	TextSize = 11,
 	TextColor3 = THEME.Text,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	Visible = false,
@@ -223,45 +290,13 @@ local clockLabel = new("TextLabel", {
 	Parent = header,
 })
 
-local function makeHeaderButton(text, anchorX, hoverColor)
-	local btn = new("TextButton", {
-		Size = UDim2.fromOffset(26, 26),
-		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, anchorX, 0.5, 0),
-		BackgroundColor3 = hoverColor,
-		BackgroundTransparency = 1,
-		BorderSizePixel = 0,
-		AutoButtonColor = false,
-		Font = Enum.Font.GothamBold,
-		Text = text,
-		TextSize = 15,
-		TextColor3 = THEME.SubText,
-		Parent = header,
-	})
-	corner(btn, 6)
-
-	btn.MouseEnter:Connect(function()
-		TweenService:Create(btn, TweenInfo.new(0.12), { BackgroundTransparency = 0 }):Play()
-		btn.TextColor3 = THEME.Text
-	end)
-	btn.MouseLeave:Connect(function()
-		TweenService:Create(btn, TweenInfo.new(0.12), { BackgroundTransparency = 1 }):Play()
-		btn.TextColor3 = THEME.SubText
-	end)
-	return btn
-end
-
-local closeBtn = makeHeaderButton("×", -10, Color3.fromRGB(186, 66, 66))
-local maxBtn = makeHeaderButton("□", -40, Color3.fromRGB(58, 64, 78))
-local minBtn = makeHeaderButton("−", -70, Color3.fromRGB(58, 64, 78))
-
 --=============================================================
 -- 主体：左侧目录 + 右侧内容
 --=============================================================
 local body = new("Frame", {
 	Name = "Body",
 	Position = UDim2.fromOffset(0, CONFIG.HeaderHeight),
-	Size = UDim2.new(1, 0, 1, -CONFIG.HeaderHeight),
+	Size = UDim2.new(1, 0, 1, -(CONFIG.HeaderHeight + CONFIG.BottomBarHeight)),
 	BackgroundTransparency = 1,
 	Parent = window,
 })
@@ -301,7 +336,6 @@ new("UIListLayout", {
 	Parent = navList,
 })
 
--- 底部实时数据
 local sideStats = new("Frame", {
 	AnchorPoint = Vector2.new(0, 1),
 	Position = UDim2.new(0, 0, 1, 0),
@@ -348,7 +382,6 @@ end
 local fpsValue = makeSideStat("FPS", 1)
 local pingValue = makeSideStat("PING", 2)
 
--- 右侧内容容器
 local contentHolder = new("Frame", {
 	Name = "ContentHolder",
 	Position = UDim2.new(0, 133, 0, 0),
@@ -363,7 +396,49 @@ local contentHolder = new("Frame", {
 local navItems = {}
 local navOrder = 0
 
-local function makeNavItem(key, text)
+-- 目录图标：用纯 GUI 拼出来，不依赖任何图片资源
+local ICON_IDLE = Color3.fromRGB(112, 121, 138)
+
+local function makeNavIcon(parent, kind)
+	local holder = new("Frame", {
+		Size = UDim2.fromOffset(13, 13),
+		Position = UDim2.new(0, 10, 0.5, -6.5),
+		BackgroundTransparency = 1,
+		Parent = parent,
+	})
+
+	local parts = {}
+	local function block(x, y, w, h, radius)
+		local f = new("Frame", {
+			Size = UDim2.fromOffset(w, h),
+			Position = UDim2.fromOffset(x, y),
+			BackgroundColor3 = ICON_IDLE,
+			BorderSizePixel = 0,
+			Parent = holder,
+		})
+		corner(f, radius or 1.5)
+		parts[#parts + 1] = f
+		return f
+	end
+
+	if kind == "grid" then
+		-- 四宫格
+		local s, gap = 5, 3
+		for i = 0, 3 do
+			block((i % 2) * (s + gap), math.floor(i / 2) * (s + gap), s, s, 1.5)
+		end
+	elseif kind == "sliders" then
+		-- 两条滑杆
+		block(0, 3, 13, 1.5, 1)
+		block(8, 1.5, 4.5, 4.5, 2.2)
+		block(0, 8.5, 13, 1.5, 1)
+		block(2, 7, 4.5, 4.5, 2.2)
+	end
+
+	return { holder = holder, parts = parts }
+end
+
+local function makeNavItem(key, text, iconKind)
 	navOrder += 1
 	local row = new("TextButton", {
 		Size = UDim2.new(1, 0, 0, 34),
@@ -377,14 +452,7 @@ local function makeNavItem(key, text)
 	})
 	corner(row, 8)
 
-	local icon = new("Frame", {
-		Size = UDim2.fromOffset(12, 12),
-		Position = UDim2.new(0, 10, 0.5, -6),
-		BackgroundColor3 = Color3.fromRGB(70, 78, 92),
-		BorderSizePixel = 0,
-		Parent = row,
-	})
-	corner(icon, 3)
+	local icon = makeNavIcon(row, iconKind)
 
 	local label = new("TextLabel", {
 		Size = UDim2.new(1, -46, 1, 0),
@@ -399,7 +467,6 @@ local function makeNavItem(key, text)
 		Parent = row,
 	})
 
-	-- 未读小红点
 	local dot = new("Frame", {
 		Size = UDim2.fromOffset(6, 6),
 		AnchorPoint = Vector2.new(1, 0.5),
@@ -411,13 +478,7 @@ local function makeNavItem(key, text)
 	})
 	corner(dot, 3)
 
-	local item = {
-		row = row,
-		icon = icon,
-		label = label,
-		dot = dot,
-		active = false,
-	}
+	local item = { row = row, icon = icon, label = label, dot = dot, active = false }
 	navItems[key] = item
 
 	row.MouseEnter:Connect(function()
@@ -442,8 +503,8 @@ local function makeNavItem(key, text)
 	return item
 end
 
-makeNavItem("main", "主功能")
-makeNavItem("settings", "设置")
+makeNavItem("main", "主功能", "grid")
+makeNavItem("settings", "设置", "sliders")
 
 function setNavActive(key)
 	for k, item in pairs(navItems) do
@@ -451,7 +512,9 @@ function setNavActive(key)
 		item.active = active
 		item.row.BackgroundTransparency = active and 0 or 1
 		item.label.TextColor3 = active and THEME.Text or THEME.SubText
-		item.icon.BackgroundColor3 = active and THEME.Accent or Color3.fromRGB(70, 78, 92)
+		for _, part in ipairs(item.icon.parts) do
+			part.BackgroundColor3 = active and THEME.Accent or ICON_IDLE
+		end
 	end
 end
 
@@ -520,17 +583,12 @@ local function makeToggle(parent, state, onChange)
 		if onChange then onChange(value) end
 	end)
 
-	return {
-		track = track,
-		get = function()
-			return value
-		end,
-	}
+	return { track = track, get = function() return value end }
 end
 
 local function makeCard(parent, opts)
 	local card = new("TextButton", {
-		Size = UDim2.new(1, 0, 0, 66),
+		Size = UDim2.new(1, 0, 0, CONFIG.CardHeight),
 		BackgroundColor3 = THEME.Card,
 		BorderSizePixel = 0,
 		AutoButtonColor = false,
@@ -593,7 +651,9 @@ end
 --=============================================================
 -- 页面容器
 --=============================================================
-local function makePage(name)
+local mainGrid -- 主功能的网格布局（随窗口宽度重排）
+
+local function makePage(name, layoutKind)
 	local page = new("Frame", {
 		Name = name,
 		Size = UDim2.new(1, 0, 1, 0),
@@ -626,22 +686,35 @@ local function makePage(name)
 		BackgroundTransparency = 1,
 		Parent = scroll,
 	})
-	new("UIListLayout", {
-		Padding = UDim.new(0, 8),
-		SortOrder = Enum.SortOrder.LayoutOrder,
-		Parent = list,
-	})
+
+	if layoutKind == "grid" then
+		mainGrid = new("UIGridLayout", {
+			CellSize = UDim2.new(0.5, -4.5, 0, CONFIG.CardHeight),
+			CellPadding = UDim2.new(0, 9, 0, 9),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+			Parent = list,
+		})
+	else
+		new("UIListLayout", {
+			Padding = UDim.new(0, 8),
+			SortOrder = Enum.SortOrder.LayoutOrder,
+			Parent = list,
+		})
+	end
+
 	return page, list
 end
 
-local pageMain, listMain = makePage("Main")
-local pageSettings, listSettings = makePage("Settings")
+local pageMain, listMain = makePage("Main", "grid")
+local pageSettings, listSettings = makePage("Settings", "list")
 
--- 主功能：三个预留卡片
-for i = 1, 3 do
+-- 主功能：四个功能卡片
+for i = 1, 4 do
 	local index = i
+	local isToggle = (i == 4)
 	local control
-	if i == 3 then
+
+	if isToggle then
 		control = {
 			kind = "toggle",
 			value = false,
@@ -662,7 +735,7 @@ for i = 1, 3 do
 	makeCard(listMain, {
 		order = i,
 		title = string.format("功能占位 %d", i),
-		desc = i == 3 and "开关式功能：开启时执行，关闭时停止" or "点击运行独立的功能脚本",
+		desc = isToggle and "开关式：开启执行，关闭停止" or "点击运行脚本",
 		control = control,
 		onClick = function()
 			log(string.format("「功能占位 %d」尚未绑定功能", index), "warn")
@@ -687,7 +760,6 @@ local logCard = makeCard(listSettings, {
 	onClick = function() openLog() end,
 })
 
--- 日志卡片上的未读红点
 local logCardDot = new("Frame", {
 	Size = UDim2.fromOffset(7, 7),
 	AnchorPoint = Vector2.new(1, 0),
@@ -719,6 +791,8 @@ new("UIPadding", {
 
 local backBtn = new("TextButton", {
 	Size = UDim2.fromOffset(62, 22),
+	AnchorPoint = Vector2.new(0, 0),
+	Position = UDim2.new(0, 0, 0, 0),
 	BackgroundTransparency = 1,
 	BorderSizePixel = 0,
 	AutoButtonColor = false,
@@ -729,12 +803,8 @@ local backBtn = new("TextButton", {
 	Parent = logPane,
 })
 corner(backBtn, 6)
-backBtn.MouseEnter:Connect(function()
-	backBtn.TextColor3 = THEME.Text
-end)
-backBtn.MouseLeave:Connect(function()
-	backBtn.TextColor3 = THEME.SubText
-end)
+backBtn.MouseEnter:Connect(function() backBtn.TextColor3 = THEME.Text end)
+backBtn.MouseLeave:Connect(function() backBtn.TextColor3 = THEME.SubText end)
 
 local clearBtn = new("TextButton", {
 	Size = UDim2.fromOffset(50, 22),
@@ -780,16 +850,60 @@ new("UIListLayout", {
 })
 
 --=============================================================
+-- 底部小白条（拖动窗口）
+--=============================================================
+local bottomBar = new("Frame", {
+	Name = "BottomBar",
+	AnchorPoint = Vector2.new(0, 1),
+	Position = UDim2.new(0, 0, 1, 0),
+	Size = UDim2.new(1, 0, 0, CONFIG.BottomBarHeight),
+	BackgroundTransparency = 1,
+	Parent = window,
+})
+
+local dragHandle = new("TextButton", {
+	Name = "DragHandle",
+	Size = UDim2.fromOffset(96, CONFIG.BottomBarHeight),
+	AnchorPoint = Vector2.new(0.5, 1),
+	Position = UDim2.new(0.5, 0, 1, 0),
+	BackgroundTransparency = 1,
+	BorderSizePixel = 0,
+	AutoButtonColor = false,
+	Text = "",
+	Active = true,
+	Parent = bottomBar,
+})
+
+local dragPill = new("Frame", {
+	Size = UDim2.fromOffset(40, 4),
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.new(0.5, 0, 0.5, 0),
+	BackgroundColor3 = Color3.new(1, 1, 1),
+	BackgroundTransparency = 0.35,
+	BorderSizePixel = 0,
+	Parent = dragHandle,
+})
+corner(dragPill, 2)
+
+dragHandle.MouseEnter:Connect(function()
+	TweenService:Create(dragPill, TweenInfo.new(0.12), { BackgroundTransparency = 0.1 }):Play()
+end)
+dragHandle.MouseLeave:Connect(function()
+	TweenService:Create(dragPill, TweenInfo.new(0.12), { BackgroundTransparency = 0.35 }):Play()
+end)
+
+--=============================================================
 -- 日志逻辑
 --=============================================================
 local logLines = {}
 local unread = 0
 local logVisible = false
+local booting = true -- 启动阶段的日志不算未读
 
 local function refreshUnread()
 	local show = unread > 0 and not logVisible
 	logCardDot.Visible = show
-	navItems.settings.dot.Visible = show and not (pageSettings.Visible)
+	navItems.settings.dot.Visible = show and not pageSettings.Visible
 end
 
 local function scrollLogToBottom()
@@ -827,7 +941,7 @@ function log(message, level)
 
 	if logVisible then
 		scrollLogToBottom()
-	else
+	elseif not booting then
 		unread += 1
 		refreshUnread()
 	end
@@ -901,9 +1015,9 @@ local pos = Vector2.new(0, 0)
 local winW, winH, winScale = CONFIG.Width, CONFIG.Height, 1
 local minimized = false
 local maximized = false
-local restoreW, restoreH = CONFIG.Width, CONFIG.Height      -- 非最大化时的尺寸
-local restorePos = Vector2.new(0, 0)                        -- 非最大化时的位置
-local maximizedW, maximizedH = CONFIG.Width, CONFIG.Height  -- 最大化时的尺寸
+local restoreW, restoreH = CONFIG.Width, CONFIG.Height
+local restorePos = Vector2.new(0, 0)
+local maximizedW, maximizedH = CONFIG.Width, CONFIG.Height
 
 local function viewportSize()
 	local cam = workspace.CurrentCamera
@@ -923,25 +1037,45 @@ local function clampPos(p)
 	)
 end
 
-local function updateSidebarWidth()
-	local w = winW < 470 and 104 or 132
+local function sidebarWidth()
+	return winW < 470 and 104 or 132
+end
+
+-- 卡片排列：宽 → 2×2，窄 → 1×4
+local function updateLayout()
+	local w = sidebarWidth()
 	sidebar.Size = UDim2.new(0, w, 1, 0)
 	contentHolder.Position = UDim2.new(0, w + 1, 0, 0)
 	contentHolder.Size = UDim2.new(1, -(w + 1), 1, 0)
+
+	local contentW = winW - w - 24
+	if mainGrid then
+		if contentW >= 310 then
+			mainGrid.CellSize = UDim2.new(0.5, -4.5, 0, CONFIG.CardHeight)
+			mainGrid.CellPadding = UDim2.new(0, 9, 0, 9)
+		else
+			mainGrid.CellSize = UDim2.new(1, 0, 0, CONFIG.CardHeight)
+			mainGrid.CellPadding = UDim2.new(0, 0, 0, 8)
+		end
+	end
 end
 
 local function apply()
 	window.Size = UDim2.fromOffset(winW, winH)
 	window.Position = UDim2.fromOffset(math.floor(pos.X), math.floor(pos.Y))
-	updateSidebarWidth()
+	updateLayout()
 end
 
 local function relayout(center)
 	local vp = viewportSize()
 	local maxW = math.max(240, vp.X - 24)
 
-	winW = math.min(CONFIG.Width, maxW)
-	winH = minimized and CONFIG.MinimizedHeight or CONFIG.Height
+	if minimized then
+		winW, winH = CONFIG.MinimizedWidth, CONFIG.MinimizedHeight
+	else
+		winW = math.min(CONFIG.Width, maxW)
+		winH = CONFIG.Height
+	end
 
 	-- 高度不够时整体等比缩小（手机横屏等）
 	winScale = math.clamp(math.min(1, (vp.Y - 40) / CONFIG.Height), 0.6, 1)
@@ -951,7 +1085,6 @@ local function relayout(center)
 		pos = Vector2.new((vp.X - winW * winScale) / 2, (vp.Y - winH * winScale) / 2)
 	end
 
-	-- 记录可恢复的尺寸，避免窄屏最小化还原后超出屏幕
 	if not minimized and not maximized then
 		restoreW, restoreH = winW, winH
 	end
@@ -984,29 +1117,28 @@ local function bindDrag(object)
 	end)
 end
 
--- 右下角缩放手柄
+-- 右下角缩放手柄：旋转 45° 的正方形被窗口裁掉，剩下的就是半透明直角三角形
+local GRIP_SIZE = 30
 local grip = new("TextButton", {
 	Name = "Grip",
-	Size = UDim2.fromOffset(18, 18),
-	AnchorPoint = Vector2.new(1, 1),
+	Size = UDim2.fromOffset(GRIP_SIZE, GRIP_SIZE),
+	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.new(1, 0, 1, 0),
-	BackgroundTransparency = 1,
+	Rotation = 45,
+	BackgroundColor3 = Color3.new(1, 1, 1),
+	BackgroundTransparency = 0.8,
 	BorderSizePixel = 0,
 	AutoButtonColor = false,
 	Text = "",
 	Parent = window,
 })
-for i = 1, 2 do
-	new("Frame", {
-		Size = UDim2.fromOffset(7, 1),
-		Position = UDim2.new(1, -4 - i * 3, 1, -4 - i * 3),
-		AnchorPoint = Vector2.new(0.5, 0.5),
-		Rotation = -45,
-		BackgroundColor3 = Color3.fromRGB(84, 93, 110),
-		BorderSizePixel = 0,
-		Parent = grip,
-	})
-end
+
+grip.MouseEnter:Connect(function()
+	TweenService:Create(grip, TweenInfo.new(0.12), { BackgroundTransparency = 0.58 }):Play()
+end)
+grip.MouseLeave:Connect(function()
+	TweenService:Create(grip, TweenInfo.new(0.12), { BackgroundTransparency = 0.8 }):Play()
+end)
 
 grip.InputBegan:Connect(function(input)
 	if input.UserInputType ~= Enum.UserInputType.MouseButton1
@@ -1056,7 +1188,33 @@ bindDrag(header)
 bindDrag(logo)
 bindDrag(titleLabel)
 bindDrag(subtitleLabel)
-bindDrag(clockLabel)
+bindDrag(dragHandle)
+
+--=============================================================
+-- 关闭 / 唤回
+--=============================================================
+local pill = new("TextButton", {
+	Name = "Reopen",
+	AnchorPoint = Vector2.new(1, 1),
+	Position = UDim2.new(1, -16, 1, -16),
+	Size = UDim2.fromOffset(112, 32),
+	BackgroundColor3 = THEME.Header,
+	BorderSizePixel = 0,
+	AutoButtonColor = false,
+	Font = Enum.Font.GothamMedium,
+	Text = "调试面板 (F2)",
+	TextSize = 12,
+	TextColor3 = THEME.Text,
+	Visible = false,
+	Parent = gui,
+})
+corner(pill, 8)
+stroke(pill, THEME.Stroke, 1)
+
+pill.MouseButton1Click:Connect(function()
+	window.Visible = true
+	pill.Visible = false
+end)
 
 --=============================================================
 -- 最小化 / 最大化
@@ -1069,11 +1227,15 @@ local function setMinimized(state)
 	subtitleLabel.Visible = not state
 	clockLabel.Visible = state
 	body.Visible = not state
-	minBtn.Visible = not state
+	bottomBar.Visible = not state
 	grip.Visible = not state
+	minDot.Visible = not state
+
+	local headerH = state and CONFIG.MinimizedHeight or CONFIG.HeaderHeight
+	TweenService:Create(header, TweenInfo.new(0.18), { Size = UDim2.new(1, 0, 0, headerH) }):Play()
 
 	if state then
-		winH = CONFIG.MinimizedHeight
+		winW, winH = CONFIG.MinimizedWidth, CONFIG.MinimizedHeight
 	elseif maximized then
 		winW, winH = maximizedW, maximizedH
 	else
@@ -1082,10 +1244,11 @@ local function setMinimized(state)
 
 	local info = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 	TweenService:Create(window, info, { Size = UDim2.fromOffset(winW, winH) }):Play()
-	TweenService:Create(header, info, { Size = UDim2.new(1, 0, 0, state and CONFIG.MinimizedHeight or CONFIG.HeaderHeight) }):Play()
 
 	pos = clampPos(pos)
 	TweenService:Create(window, info, { Position = UDim2.fromOffset(math.floor(pos.X), math.floor(pos.Y)) }):Play()
+
+	updateLayout()
 end
 
 local function setMaximized(state)
@@ -1111,11 +1274,16 @@ local function setMaximized(state)
 	apply()
 end
 
-minBtn.MouseButton1Click:Connect(function()
+closeDot.MouseButton1Click:Connect(function()
+	window.Visible = false
+	pill.Visible = true
+end)
+
+minDot.MouseButton1Click:Connect(function()
 	setMinimized(true)
 end)
 
-maxBtn.MouseButton1Click:Connect(function()
+maxDot.MouseButton1Click:Connect(function()
 	if minimized then
 		setMinimized(false)
 	else
@@ -1128,37 +1296,6 @@ task.spawn(function()
 		clockLabel.Text = os.date("%H:%M:%S")
 		task.wait(0.5)
 	end
-end)
-
---=============================================================
--- 关闭 / 唤回
---=============================================================
-local pill = new("TextButton", {
-	Name = "Reopen",
-	AnchorPoint = Vector2.new(1, 1),
-	Position = UDim2.new(1, -16, 1, -16),
-	Size = UDim2.fromOffset(112, 32),
-	BackgroundColor3 = THEME.Header,
-	BorderSizePixel = 0,
-	AutoButtonColor = false,
-	Font = Enum.Font.GothamMedium,
-	Text = "调试面板 (F2)",
-	TextSize = 12,
-	TextColor3 = THEME.Text,
-	Visible = false,
-	Parent = gui,
-})
-corner(pill, 8)
-stroke(pill, THEME.Stroke, 1)
-
-closeBtn.MouseButton1Click:Connect(function()
-	window.Visible = false
-	pill.Visible = true
-end)
-
-pill.MouseButton1Click:Connect(function()
-	window.Visible = true
-	pill.Visible = false
 end)
 
 UserInputService.InputBegan:Connect(function(input, processed)
@@ -1175,6 +1312,11 @@ end)
 local frames, elapsed = 0, 0
 
 RunService.RenderStepped:Connect(function(dt)
+	-- 彩虹描边缓慢旋转
+	if rainbowGrad then
+		rainbowGrad.Rotation = (rainbowGrad.Rotation + dt * 42) % 360
+	end
+
 	frames += 1
 	elapsed += dt
 	if elapsed < 0.5 then return end
@@ -1195,11 +1337,10 @@ RunService.RenderStepped:Connect(function(dt)
 	frames, elapsed = 0, 0
 end)
 
--- 视口变化时重新适配
 local camera = workspace.CurrentCamera
 if camera then
 	camera:GetPropertyChangedSignal("ViewportSize"):Connect(function()
-		if not maximized then
+		if not maximized and not minimized then
 			relayout(false)
 		end
 	end)
@@ -1239,8 +1380,11 @@ relayout(true)
 showPage("main")
 
 log("调试面板已启动", "success")
-log("拖动标题栏移动窗口，右下角可自由缩放", "info")
+log("拖动标题栏或底部小白条移动窗口，右下三角缩放", "info")
 log("设置 → 日志 查看输出记录", "info")
 task.delay(1, function()
 	log("F2 可快速隐藏 / 显示面板", "info")
+end)
+task.delay(2, function()
+	booting = false
 end)
