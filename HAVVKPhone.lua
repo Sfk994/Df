@@ -1,6 +1,6 @@
 --[[
 	==============================================================
-	  HAVVK Phone · 调试面板 v2.6（iPhone 锁屏风格）
+	  HAVVK Phone · 调试面板 v2.7（iPhone 锁屏风格）
 	==============================================================
 	  用法：
 	    1. StarterGui 里新建一个 LocalScript
@@ -8,7 +8,7 @@
 	    3. 运行游戏
 
 	  交互：
-	    · 锁屏：向上滑动解锁（鼠标拖 / 手指上滑），点「向上滑动解锁」也行
+	    · 锁屏：从底部小白条向上滑动解锁（鼠标拖 / 手指上滑），点提示文字也行
 	    · 上滑提示压在底部小白条上方 24px，不贴边
 	    · 灵动岛：86 → 90（只加宽 5%），小锁靠左留白并播放开锁动画，收起后彻底隐藏
 	    · 顶部状态栏：左边时间，右边信号 / 5G / 电池
@@ -21,7 +21,7 @@
 	    · 右上角小圆点 × 关闭，右下角按钮或 F2 重新唤出
 	    · 底部上滑返回桌面：解锁后底部有小白色条，从那儿往上拖，页面跟手上升并淡出，
       松手超过 52px 就回主屏，不够则弹回原处
-    · 玩家列表：头像 / 昵称 / 进服时间 / 本局游玩时长，右侧 TP 一键传送到对方身边
+    · 玩家列表：头像 / 昵称 / 账号时间 / 与你的距离，右侧 TP 一键传送到对方身边
     · 面板按屏幕高度自动等比缩放，PC / 手机都适用
 
 	  功能分布：
@@ -216,7 +216,6 @@ do
 		Parent = root,
 	})
 	corner(bezel, CONFIG.BezelCorner)
-	stroke(bezel, COLORS.White, 0.82, 1.2)
 end
 
 local screen = new("Frame", {
@@ -229,18 +228,6 @@ local screen = new("Frame", {
 	Parent = root,
 })
 corner(screen, CONFIG.Corner)
-
--- 圆角描边单独一层压在最上面：无论页面怎么滑、壁纸怎么换，轮廓都不丢
-local rim = new("Frame", {
-	Name = "Rim",
-	Size = UDim2.fromScale(1, 1),
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	ZIndex = 55,
-	Parent = screen,
-})
-corner(rim, CONFIG.Corner)
-stroke(rim, COLORS.White, 0.8, 1.5)
 
 -- 前向声明：锁屏 / 主屏 / Dock 的闭包会互相引用这些函数
 local unlock, lock, gesture, hintButton
@@ -563,7 +550,11 @@ new("TextLabel", {
 	Parent = statusBar,
 })
 
--- 电池：填充块与外壳同尺寸，描边压在填充之上
+-- 电池：Roblox 没有读取设备真实电量的接口，这里内置一个可配置的模拟值；
+-- 外壳描边 + 内部填充块，填充宽度随电量缩放。要接入真实数据时，
+-- 调用 _G.HAVVKPhone:SetBattery(0~1)（比如从你自己的 HTTP / 遥测服务喂进来）。
+local BATTERY_LEVEL = 0.82 -- 0~1，模拟电量（1 = 满）
+
 local battery = new("Frame", {
 	Size = UDim2.fromOffset(25, 12),
 	AnchorPoint = Vector2.new(1, 0.5),
@@ -573,18 +564,25 @@ local battery = new("Frame", {
 })
 corner(battery, 3.6)
 
+-- 描边画在外壳上，内部再放一块随电量缩放的填充
+stroke(battery, COLORS.White, 0.05, 1)
+
 local batteryFill = new("Frame", {
 	Size = UDim2.fromScale(1, 1),
-	Position = UDim2.fromOffset(0, 0),
+	Position = UDim2.fromOffset(1, 1),
 	BackgroundColor3 = COLORS.White,
 	BackgroundTransparency = 0.14,
 	BorderSizePixel = 0,
 	Parent = battery,
 })
-corner(batteryFill, 3.6)
+corner(batteryFill, 2.6)
 
--- 描边画在填充之后，边缘才清晰
-stroke(battery, COLORS.White, 0.05, 1)
+local function setBattery(level)
+	level = math.clamp(level or BATTERY_LEVEL, 0.05, 1)
+	-- 左右各留 1px 内边距：宽 = level * 25 - 2，高 = 12 - 2
+	batteryFill.Size = UDim2.new(level, -2, 1, -2)
+end
+setBattery(BATTERY_LEVEL)
 
 local batteryCap = new("Frame", {
 	Size = UDim2.fromOffset(1.8, 4.6),
@@ -1094,7 +1092,7 @@ local swipeHint = new("TextLabel", {
 	Position = UDim2.fromOffset(0, SWIPE_HINT_Y),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.GothamMedium,
-	Text = "↑  向上滑动解锁",
+	Text = "↑  从小白条上滑解锁",
 	TextSize = 12,
 	TextColor3 = COLORS.White,
 	TextTransparency = 0.42,
@@ -1437,7 +1435,7 @@ new("TextLabel", {
 	Position = UDim2.fromOffset(0, 404),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.GothamMedium,
-	Text = "PHONE   ·   v2.6",
+	Text = "PHONE   ·   v2.7",
 	TextSize = 9,
 	TextColor3 = COLORS.White,
 	TextTransparency = 0.78,
@@ -1982,7 +1980,7 @@ new("TextLabel", {
 	Position = UDim2.fromOffset(18, 404),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.Gotham,
-	Text = "HAVVK Phone · v2.6",
+	Text = "HAVVK Phone · v2.7",
 	TextSize = 9,
 	TextColor3 = COLORS.SubText,
 	TextTransparency = 0.25,
@@ -2174,7 +2172,7 @@ new("TextLabel", {
 	Position = UDim2.fromOffset(72, 42),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.Gotham,
-	Text = "调试面板 v2.6 · 构建 216",
+	Text = "调试面板 v2.7 · 构建 217",
 	TextSize = 9,
 	TextColor3 = COLORS.SubText,
 	TextXAlignment = Enum.TextXAlignment.Left,
@@ -2313,7 +2311,7 @@ aboutSection(4, "运行", {
 })
 
 local panelRows = {
-	{ "面板版本", "v2.6（构建 216）" },
+	{ "面板版本", "v2.7（构建 217）" },
 	{ "面板尺寸", string.format("%d × %d", CONFIG.Width, CONFIG.Height) },
 	{ "当前壁纸", WALLPAPERS[wallpaperIndex].name, "wallpaper" },
 	{ "日志条数", tostring(#logLines), "logs" },
@@ -2430,11 +2428,10 @@ end
 
 --=============================================================
 -- 玩家列表页
---   · 头像 / 昵称 / 进服时间 / 本局游玩时长 / 一键传送
---   · 进服时间以脚本记录为准（脚本启动前已在场的玩家按启动时刻计）
+--   · 头像 / 昵称 / 账号时间（AccountAge）/ 与你的距离 / 一键传送
+--   · 距离每秒刷新一次，只有页面可见时才更新
 --=============================================================
 do
-	local joinAt = {}
 	local avatarCache = {}
 
 	local playerPage = makePage("Players", "玩家列表")
@@ -2496,18 +2493,33 @@ do
 		Parent = playerList,
 	})
 
-	local function fmtDuration(sec)
-		sec = math.max(0, math.floor(sec))
-		if sec < 60 then
-			return sec .. " 秒"
-		elseif sec < 3600 then
-			return string.format("%d 分 %02d 秒", math.floor(sec / 60), sec % 60)
+	local function fmtAge(days)
+		days = math.max(0, math.floor(days or 0))
+		if days < 365 then
+			return string.format("账号 %d 天", days)
 		end
-		return string.format("%d 时 %02d 分", math.floor(sec / 3600), math.floor((sec % 3600) / 60))
+		return string.format("账号 %d 年 %d 天", math.floor(days / 365), days % 365)
 	end
 
-	local function fmtClock(t)
-		return os.date("%H:%M", t)
+	local function fmtDist(m)
+		m = math.max(0, m or 0)
+		if m < 1 then
+			return "距你 0 m"
+		elseif m < 1000 then
+			return string.format("距你 %d m", math.floor(m + 0.5))
+		end
+		return string.format("距你 %.1f km", m / 1000)
+	end
+
+	local function distanceTo(target)
+		local myChar = player.Character
+		local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+		local tChar = target.Character
+		local tRoot = tChar and tChar:FindFirstChild("HumanoidRootPart")
+		if not (myRoot and tRoot) then
+			return nil
+		end
+		return (myRoot.Position - tRoot.Position).Magnitude
 	end
 
 	local function teleportTo(target)
@@ -2628,18 +2640,17 @@ do
 		return row, info
 	end
 
-	-- 每秒刷新一次时长文本（只改文本，不重建控件）
+	-- 每秒刷新一次距离文本（只改文本，不重建控件）
 	local function refreshTimes()
 		if not playerPage.Visible then
 			return
 		end
-		local now = os.time()
 		for _, item in ipairs(rows) do
-			local startT = joinAt[item.player] or now
+			local d = distanceTo(item.player)
 			item.info.Text = string.format(
-				"%s 进服 · 已玩 %s",
-				fmtClock(startT),
-				fmtDuration(now - startT)
+				"%s · %s",
+				fmtAge(item.player.AccountAge),
+				d and fmtDist(d) or "距离未知"
 			)
 		end
 	end
@@ -2652,13 +2663,15 @@ do
 
 		local list = Players:GetPlayers()
 		table.sort(list, function(a, b)
-			return (joinAt[a] or 0) < (joinAt[b] or 0)
+			local da = distanceTo(a) or math.huge
+			local db = distanceTo(b) or math.huge
+			return da < db
 		end)
 
 		for i, target in ipairs(list) do
 			local row, info = makeRow(target, i)
-			local startT = joinAt[target] or os.time()
-			info.Text = string.format("%s 进服 · 已玩 %s", fmtClock(startT), fmtDuration(os.time() - startT))
+			local d = distanceTo(target)
+			info.Text = string.format("%s · %s", fmtAge(target.AccountAge), d and fmtDist(d) or "距离未知")
 			rows[#rows + 1] = { row = row, info = info, player = target }
 		end
 
@@ -2674,19 +2687,13 @@ do
 		log("玩家列表已刷新（" .. #Players:GetPlayers() .. " 人）", "info")
 	end)
 
-	-- 会话计时：脚本启动时已在场的玩家按启动时刻算
-	local bootTime = os.time()
-	for _, target in ipairs(Players:GetPlayers()) do
-		joinAt[target] = bootTime
-	end
+	-- 进服 / 离服时，页面可见才重建
 	Players.PlayerAdded:Connect(function(target)
-		joinAt[target] = os.time()
 		if playerPage.Visible then
 			rebuild()
 		end
 	end)
 	Players.PlayerRemoving:Connect(function(target)
-		joinAt[target] = nil
 		if playerPage.Visible then
 			rebuild()
 		end
@@ -3012,10 +3019,12 @@ function lock()
 end
 
 -- 上滑手势捕获层（盖住锁屏内容，不拦截状态栏）
+-- 解锁手势热区：只盖住底部小白条那一条，从它开始往上拖才解锁
 gesture = new("Frame", {
 	Name = "Gesture",
-	Size = UDim2.new(1, 0, 1, -30),
-	Position = UDim2.fromOffset(0, 30),
+	Size = UDim2.fromOffset(140, 46),
+	AnchorPoint = Vector2.new(0.5, 1),
+	Position = UDim2.new(0.5, 0, 1, -4),
 	BackgroundTransparency = 1,
 	Active = true,
 	ZIndex = 25,
@@ -3363,6 +3372,10 @@ end
 
 function API:Lock()
 	lock()
+end
+
+function API:SetBattery(level)
+	setBattery(level)
 end
 
 API.OnReload = nil
