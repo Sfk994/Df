@@ -1,6 +1,6 @@
 --[[
 	==============================================================
-	  HAVVK Phone · 调试面板 v2.4（iPhone 锁屏风格）
+	  HAVVK Phone · 调试面板 v2.6（iPhone 锁屏风格）
 	==============================================================
 	  用法：
 	    1. StarterGui 里新建一个 LocalScript
@@ -10,25 +10,30 @@
 	  交互：
 	    · 锁屏：向上滑动解锁（鼠标拖 / 手指上滑），点「向上滑动解锁」也行
 	    · 上滑提示压在底部小白条上方 24px，不贴边
-	    · 灵动岛：86 → 90（只加宽 5%），小锁靠左留白并播放开锁动画，随后收回
+	    · 灵动岛：86 → 90（只加宽 5%），小锁靠左留白并播放开锁动画，收起后彻底隐藏
 	    · 顶部状态栏：左边时间，右边信号 / 5G / 电池
 	    · 锁屏日期：几月几日 星期几 · 农历干支年月日
-	    · 主屏：三个应用图标 FLY / TP / CAR，点一下即加载远程脚本
+	    · 主屏：四个应用 FLY / TP / CAR 加载远程脚本，PLR = 玩家列表
 	    · 底部 Dock（图标版）：锁 = 回到锁屏，滑块 = 设置页，文稿 = 日志页
 	    · 顶部状态栏区域按住可拖动整个面板
+	    · 圆角换了画法：投影层 + 机身外框（外扩 5px）+ 内屏，三层叠出中框与圆角，
+      内容再怎么换壁纸 / 切页面也顶不出边框
 	    · 右上角小圆点 × 关闭，右下角按钮或 F2 重新唤出
-	    · 面板按屏幕高度自动等比缩放，PC / 手机都适用
+	    · 底部上滑返回桌面：解锁后底部有小白色条，从那儿往上拖，页面跟手上升并淡出，
+      松手超过 52px 就回主屏，不够则弹回原处
+    · 玩家列表：头像 / 昵称 / 进服时间 / 本局游玩时长，右侧 TP 一键传送到对方身边
+    · 面板按屏幕高度自动等比缩放，PC / 手机都适用
 
 	  功能分布：
 	    · 标题栏滚动字幕 → 锁屏通知卡片里的循环字幕
 	    · 主功能三个 APP 图标 → 主屏图标（左上对齐，拉宽不居中）
 	    · 运行状态（FPS / PING / 日志条数）、重载、日志 → 全部收进设置页
-	    · 设置页另有「换壁纸」（4 套配色平滑过渡）与「关于本机」
+	    · 设置页另有「换壁纸」（8 套：渐变 + 光带 + 柔光 + 暗角，平滑过渡）与「关于本机」
 	    · 关于本机：账号 / 设备 / 运行 / 面板 四组明细，滚动查看
 	    · 日志阅读页从右侧滑入，未读数在 Dock 与设置行上提示
 	    · 自动刷新时间 / 日期 → 锁屏大时钟
 
-	  性能（v2.4 优化）：
+	  性能（v2.6 优化）：
 	    · 字幕改用单个循环 Tween，不再每帧写 Position（原来 60 次/秒的属性复制）
 	    · 帧数统计从 RenderStepped 挪到 Heartbeat，面板隐藏时直接返回
 	    · FPS / PING / 时间只在对应界面可见时才写文本，值没变不重复赋值
@@ -58,7 +63,9 @@ local playerGui = player:WaitForChild("PlayerGui")
 local CONFIG = {
 	Width = 300,
 	Height = 640,
-	Corner = 38,
+	Corner = 33,      -- 内屏圆角
+	Bezel = 5,        -- 机身外框厚度（画在内屏四周，不侵占内屏布局）
+	BezelCorner = 38, -- 机身圆角 = 内屏圆角 + 外框厚度
 	UnlockThreshold = 62,   -- 上滑超过这个距离就解锁
 	MaxLogLines = 150,
 	MarqueeSpeed = 34,      -- 通知卡字幕速度（像素 / 秒）
@@ -159,7 +166,10 @@ local function textWithShadow(parent, props, shadowAlpha, offsetY)
 end
 
 --=============================================================
--- 窗口骨架
+-- 窗口骨架：投影 → 机身外框 → 内屏（圆角由这三层叠出来）
+--   · 投影：比机身大一圈的柔和黑块，让面板从 3D 画面上「浮」起来
+--   · 机身：外扩 Bezel 像素的深色圆角块，四角永远比内屏更圆
+--   · 内屏：整块内容，圆角比机身小一圈，正好嵌在外框里
 --=============================================================
 local gui = new("ScreenGui", {
 	Name = "HAVVKPhone",
@@ -181,16 +191,56 @@ local root = new("Frame", {
 
 local uiScale = new("UIScale", { Scale = 1, Parent = root })
 
+-- 投影 + 机身：用完即释放，不占顶层局部变量
+do
+	local shadow = new("Frame", {
+		Name = "Shadow",
+		Size = UDim2.new(1, CONFIG.Bezel * 4, 1, CONFIG.Bezel * 4),
+		Position = UDim2.fromOffset(-CONFIG.Bezel * 2, -CONFIG.Bezel * 2 + 4),
+		BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+		BackgroundTransparency = 0.86,
+		BorderSizePixel = 0,
+		ZIndex = 0,
+		Parent = root,
+	})
+	corner(shadow, CONFIG.BezelCorner + 8)
+
+	-- 机身：外扩一圈，视觉上就是手机的中框
+	local bezel = new("Frame", {
+		Name = "Bezel",
+		Size = UDim2.new(1, CONFIG.Bezel * 2, 1, CONFIG.Bezel * 2),
+		Position = UDim2.fromOffset(-CONFIG.Bezel, -CONFIG.Bezel),
+		BackgroundColor3 = Color3.fromRGB(8, 9, 14),
+		BorderSizePixel = 0,
+		ZIndex = 0,
+		Parent = root,
+	})
+	corner(bezel, CONFIG.BezelCorner)
+	stroke(bezel, COLORS.White, 0.82, 1.2)
+end
+
 local screen = new("Frame", {
 	Name = "Screen",
 	Size = UDim2.fromScale(1, 1),
-	BackgroundColor3 = COLORS.Screen,
+	BackgroundTransparency = 1, -- 底色交给壁纸层（自带圆角，见下）
 	BorderSizePixel = 0,
-	ClipsDescendants = true,
+	ClipsDescendants = true,    -- 只做矩形裁剪：锁屏上滑不会溢出面板
+	ZIndex = 1,
 	Parent = root,
 })
 corner(screen, CONFIG.Corner)
-stroke(screen, COLORS.White, 0.84, 1.5)
+
+-- 圆角描边单独一层压在最上面：无论页面怎么滑、壁纸怎么换，轮廓都不丢
+local rim = new("Frame", {
+	Name = "Rim",
+	Size = UDim2.fromScale(1, 1),
+	BackgroundTransparency = 1,
+	BorderSizePixel = 0,
+	ZIndex = 55,
+	Parent = screen,
+})
+corner(rim, CONFIG.Corner)
+stroke(rim, COLORS.White, 0.8, 1.5)
 
 -- 前向声明：锁屏 / 主屏 / Dock 的闭包会互相引用这些函数
 local unlock, lock, gesture, hintButton
@@ -200,156 +250,253 @@ local currentFps, currentPing, updateAboutLive
 local API = {}
 
 --=============================================================
--- 壁纸：渐变 + 三团柔光（多套配色，可切换）
+-- 壁纸：渐变底 + 三道光带 + 两团柔光 + 暗角
+--   每一层都铺满整屏并各自带圆角，不依赖父级裁切，
+--   所以四角永远是圆的，切换时的过渡也不会溢出面板
 --=============================================================
-local WALLPAPERS = {
-	{
-		name = "极夜紫",
-		stops = {
-			Color3.fromRGB(26, 24, 62), Color3.fromRGB(56, 38, 90),
-			Color3.fromRGB(110, 46, 94), Color3.fromRGB(58, 30, 68),
-		},
-		blooms = {
-			Color3.fromRGB(118, 96, 255), Color3.fromRGB(255, 96, 150), Color3.fromRGB(64, 120, 220),
-		},
-	},
-	{
-		name = "深海",
-		stops = {
-			Color3.fromRGB(10, 24, 54), Color3.fromRGB(18, 58, 96),
-			Color3.fromRGB(24, 112, 142), Color3.fromRGB(14, 48, 76),
-		},
-		blooms = {
-			Color3.fromRGB(42, 138, 255), Color3.fromRGB(40, 214, 198), Color3.fromRGB(26, 92, 224),
-		},
-	},
-	{
-		name = "暮光",
-		stops = {
-			Color3.fromRGB(42, 20, 40), Color3.fromRGB(104, 44, 48),
-			Color3.fromRGB(188, 94, 54), Color3.fromRGB(68, 30, 44),
-		},
-		blooms = {
-			Color3.fromRGB(255, 146, 64), Color3.fromRGB(255, 92, 92), Color3.fromRGB(184, 72, 200),
-		},
-	},
-	{
-		name = "石墨",
-		stops = {
-			Color3.fromRGB(20, 20, 24), Color3.fromRGB(42, 44, 52),
-			Color3.fromRGB(66, 68, 80), Color3.fromRGB(28, 28, 34),
-		},
-		blooms = {
-			Color3.fromRGB(122, 132, 152), Color3.fromRGB(96, 104, 124), Color3.fromRGB(150, 158, 176),
-		},
-	},
-}
+-- 下面这块整体塞进 do ... end：里面的临时量用完即释放，
+-- 避免顶层的局部变量撞到 200 个上限
+local WALLPAPERS
+local wallpaperIndex = 1
+local setWallpaper
 
-local BLOOM_LAYOUT = {
-	{ x = 96, y = 90, r = 150, strength = 0.62 },
-	{ x = 244, y = 360, r = 165, strength = 0.66 },
-	{ x = 60, y = 560, r = 150, strength = 0.55 },
-}
+do
+	local function rgb(r, g, b)
+		return Color3.fromRGB(r, g, b)
+	end
 
-local wallpaper = new("Frame", {
-	Name = "Wallpaper",
-	Size = UDim2.fromScale(1, 1),
-	BackgroundColor3 = WALLPAPERS[1].stops[1],
-	BorderSizePixel = 0,
-	ZIndex = 1,
-	Parent = screen,
-})
+	WALLPAPERS = {
+		{
+			name = "极夜紫",
+			rotation = 168,
+			stops = { rgb(24, 22, 58), rgb(54, 36, 88), rgb(110, 46, 94), rgb(52, 26, 62) },
+			bands = { rgb(120, 96, 255), rgb(255, 96, 150), rgb(64, 120, 220) },
+			blooms = { rgb(148, 120, 255), rgb(255, 112, 168) },
+		},
+		{
+			name = "深海",
+			rotation = 156,
+			stops = { rgb(8, 22, 50), rgb(16, 54, 92), rgb(24, 112, 142), rgb(10, 40, 66) },
+			bands = { rgb(42, 138, 255), rgb(40, 214, 198), rgb(18, 84, 190) },
+			blooms = { rgb(64, 190, 255), rgb(40, 224, 210) },
+		},
+		{
+			name = "暮光",
+			rotation = 190,
+			stops = { rgb(44, 20, 40), rgb(112, 46, 48), rgb(196, 100, 56), rgb(70, 28, 44) },
+			bands = { rgb(255, 146, 64), rgb(255, 92, 110), rgb(176, 72, 200) },
+			blooms = { rgb(255, 176, 96), rgb(255, 110, 120) },
+		},
+		{
+			name = "石墨",
+			rotation = 174,
+			stops = { rgb(22, 22, 27), rgb(48, 50, 60), rgb(92, 95, 110), rgb(30, 30, 38) },
+			bands = { rgb(140, 152, 176), rgb(104, 112, 134), rgb(168, 176, 196) },
+			blooms = { rgb(160, 172, 196), rgb(120, 128, 148) },
+		},
+		{
+			name = "极光",
+			rotation = 162,
+			stops = { rgb(6, 26, 34), rgb(10, 62, 74), rgb(26, 130, 118), rgb(8, 36, 52) },
+			bands = { rgb(64, 255, 190), rgb(96, 200, 255), rgb(150, 120, 255) },
+			blooms = { rgb(80, 255, 200), rgb(110, 170, 255) },
+		},
+		{
+			name = "樱花",
+			rotation = 198,
+			stops = { rgb(58, 28, 48), rgb(120, 60, 88), rgb(214, 122, 148), rgb(86, 40, 62) },
+			bands = { rgb(255, 168, 200), rgb(255, 210, 220), rgb(190, 120, 255) },
+			blooms = { rgb(255, 190, 214), rgb(230, 150, 210) },
+		},
+		{
+			name = "午夜蓝",
+			rotation = 158,
+			stops = { rgb(8, 14, 40), rgb(18, 30, 78), rgb(38, 62, 140), rgb(10, 18, 48) },
+			bands = { rgb(72, 108, 255), rgb(96, 152, 255), rgb(140, 92, 255) },
+			blooms = { rgb(96, 140, 255), rgb(120, 100, 240) },
+		},
+		{
+			name = "琥珀",
+			rotation = 178,
+			stops = { rgb(34, 22, 14), rgb(78, 46, 22), rgb(160, 96, 36), rgb(48, 28, 16) },
+			bands = { rgb(255, 176, 72), rgb(230, 120, 60), rgb(255, 208, 120) },
+			blooms = { rgb(255, 196, 110), rgb(220, 130, 60) },
+		},
+	}
 
-local wallpaperGradient = new("UIGradient", {
-	Color = ColorSequence.new({
-		ColorSequenceKeypoint.new(0, WALLPAPERS[1].stops[1]),
-		ColorSequenceKeypoint.new(0.45, WALLPAPERS[1].stops[2]),
-		ColorSequenceKeypoint.new(0.78, WALLPAPERS[1].stops[3]),
-		ColorSequenceKeypoint.new(1, WALLPAPERS[1].stops[4]),
-	}),
-	Rotation = 168,
-	Parent = wallpaper,
-})
+	-- 光带：整屏圆角矩形 + 透明度渐变，斜着铺一层柔光，永远越不过四角
+	local BAND_LAYOUT = {
+		{ rotation = 18, alpha = 0.30, peak = 0.34 },
+		{ rotation = -34, alpha = 0.26, peak = 0.66 },
+		{ rotation = 74, alpha = 0.20, peak = 0.50 },
+	}
 
--- 用几层同心圆叠出柔和光晕（Roblox 没有径向渐变）
-local bloomGroups = {}
-for i, spec in ipairs(BLOOM_LAYOUT) do
-	local rings = {}
-	for level = 3, 1, -1 do
-		local r = spec.r * (level / 3)
-		local ring = new("Frame", {
-			Size = UDim2.fromOffset(r * 2, r * 2),
-			AnchorPoint = Vector2.new(0.5, 0.5),
-			Position = UDim2.fromOffset(spec.x, spec.y),
-			BackgroundColor3 = WALLPAPERS[1].blooms[i],
-			BackgroundTransparency = 1 - spec.strength * (0.2 * (4 - level)),
+	-- 柔光：圆心离四角都留足距离，避免光晕糊到圆角外面
+	local BLOOM_LAYOUT = {
+		{ x = 150, y = 170, r = 120, alpha = 0.55 },
+		{ x = 90, y = 470, r = 105, alpha = 0.45 },
+	}
+	local BLOOM_LEVELS = 18 -- 同心圆层数：够多才看不到台阶
+
+	local wallpaper = new("Frame", {
+		Name = "Wallpaper",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = WALLPAPERS[1].stops[1],
+		BorderSizePixel = 0,
+		ZIndex = 1,
+		Parent = screen,
+	})
+	corner(wallpaper, CONFIG.Corner)
+	wallpaper.ClipsDescendants = true -- 柔光圆再怎么大，也不会顶穿圆角
+
+	local wallpaperGradient = new("UIGradient", {
+		Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, WALLPAPERS[1].stops[1]),
+			ColorSequenceKeypoint.new(0.45, WALLPAPERS[1].stops[2]),
+			ColorSequenceKeypoint.new(0.78, WALLPAPERS[1].stops[3]),
+			ColorSequenceKeypoint.new(1, WALLPAPERS[1].stops[4]),
+		}),
+		Rotation = WALLPAPERS[1].rotation,
+		Parent = wallpaper,
+	})
+
+	local bandFrames = {}
+	for i, spec in ipairs(BAND_LAYOUT) do
+		local band = new("Frame", {
+			Size = UDim2.fromScale(1, 1),
+			BackgroundColor3 = WALLPAPERS[1].bands[i],
 			BorderSizePixel = 0,
 			ZIndex = 2,
 			Parent = wallpaper,
 		})
-		corner(ring, r)
-		rings[level] = ring
-	end
-	bloomGroups[i] = rings
-end
-
-local wallpaperIndex = 1
-local liveStops = {
-	WALLPAPERS[1].stops[1], WALLPAPERS[1].stops[2],
-	WALLPAPERS[1].stops[3], WALLPAPERS[1].stops[4],
-}
-local wallpaperConn = nil
-
--- 切换壁纸：渐变逐帧插值 + 光晕补间，0.42s 平滑过渡
-local function setWallpaper(index)
-	index = ((index - 1) % #WALLPAPERS) + 1
-	local preset = WALLPAPERS[index]
-	local target = preset.stops
-
-	if wallpaperConn then
-		wallpaperConn:Disconnect()
-		wallpaperConn = nil
-	end
-
-	local from = { liveStops[1], liveStops[2], liveStops[3], liveStops[4] }
-	local startClock = os.clock()
-
-	wallpaperConn = RunService.RenderStepped:Connect(function()
-		local k = math.clamp((os.clock() - startClock) / 0.42, 0, 1)
-		local e = 1 - (1 - k) * (1 - k)
-		for i = 1, 4 do
-			liveStops[i] = from[i]:Lerp(target[i], e)
-		end
-		wallpaperGradient.Color = ColorSequence.new({
-			ColorSequenceKeypoint.new(0, liveStops[1]),
-			ColorSequenceKeypoint.new(0.45, liveStops[2]),
-			ColorSequenceKeypoint.new(0.78, liveStops[3]),
-			ColorSequenceKeypoint.new(1, liveStops[4]),
+		corner(band, CONFIG.Corner)
+		new("UIGradient", {
+			Rotation = spec.rotation,
+			Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1),
+				NumberSequenceKeypoint.new(math.clamp(spec.peak - 0.26, 0.02, 0.9), 1),
+				NumberSequenceKeypoint.new(spec.peak, 1 - spec.alpha),
+				NumberSequenceKeypoint.new(math.clamp(spec.peak + 0.26, 0.1, 0.98), 1),
+				NumberSequenceKeypoint.new(1, 1),
+			}),
+			Parent = band,
 		})
-		wallpaper.BackgroundColor3 = liveStops[1]
-		if k >= 1 then
+		bandFrames[i] = band
+	end
+
+	-- 用多层同心圆叠出柔和光晕（Roblox 没有径向渐变）
+	local bloomGroups = {}
+	for i, spec in ipairs(BLOOM_LAYOUT) do
+		local rings = {}
+		for level = BLOOM_LEVELS, 1, -1 do
+			local r = spec.r * (level / BLOOM_LEVELS)
+			-- 外圈稀薄、内圈渐浓，叠起来就是柔光而不是同心圆
+			local t = (level - 1) / (BLOOM_LEVELS - 1)
+			local alpha = spec.alpha * ((1 - t) ^ 2.2) / BLOOM_LEVELS * 2.6
+			local ring = new("Frame", {
+				Size = UDim2.fromOffset(r * 2, r * 2),
+				AnchorPoint = Vector2.new(0.5, 0.5),
+				Position = UDim2.fromOffset(spec.x, spec.y),
+				BackgroundColor3 = WALLPAPERS[1].blooms[i],
+				BackgroundTransparency = 1 - alpha,
+				BorderSizePixel = 0,
+				ZIndex = 3,
+				Parent = wallpaper,
+			})
+			corner(ring, r)
+			rings[level] = ring
+		end
+		bloomGroups[i] = rings
+	end
+
+	-- 上下压暗，画面更有纵深
+	local vignette = new("Frame", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+		BorderSizePixel = 0,
+		ZIndex = 4,
+		Parent = wallpaper,
+	})
+	corner(vignette, CONFIG.Corner)
+	new("UIGradient", {
+		Rotation = 90,
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, 0.5),
+			NumberSequenceKeypoint.new(0.24, 1),
+			NumberSequenceKeypoint.new(0.7, 1),
+			NumberSequenceKeypoint.new(1, 0.58),
+		}),
+		Parent = vignette,
+	})
+
+	local liveRotation = WALLPAPERS[1].rotation
+	local liveStops = {
+		WALLPAPERS[1].stops[1], WALLPAPERS[1].stops[2],
+		WALLPAPERS[1].stops[3], WALLPAPERS[1].stops[4],
+	}
+	local wallpaperConn = nil
+
+	-- 切换壁纸：渐变逐帧插值（含角度）+ 光带 / 柔光补间，0.42s 平滑过渡
+	setWallpaper = function(index)
+		index = ((index - 1) % #WALLPAPERS) + 1
+		local preset = WALLPAPERS[index]
+		local target = preset.stops
+
+		if wallpaperConn then
 			wallpaperConn:Disconnect()
 			wallpaperConn = nil
 		end
-	end)
 
-	for i, rings in ipairs(bloomGroups) do
-		local color = preset.blooms[i]
-		for _, ring in ipairs(rings) do
-			TweenService:Create(ring, TweenInfo.new(0.42, Enum.EasingStyle.Quad), {
-				BackgroundColor3 = color,
+		local from = { liveStops[1], liveStops[2], liveStops[3], liveStops[4] }
+		local fromRotation = liveRotation
+		local startClock = os.clock()
+
+		wallpaperConn = RunService.RenderStepped:Connect(function()
+			local k = math.clamp((os.clock() - startClock) / 0.42, 0, 1)
+			local e = 1 - (1 - k) * (1 - k)
+			for i = 1, 4 do
+				liveStops[i] = from[i]:Lerp(target[i], e)
+			end
+			wallpaperGradient.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, liveStops[1]),
+				ColorSequenceKeypoint.new(0.45, liveStops[2]),
+				ColorSequenceKeypoint.new(0.78, liveStops[3]),
+				ColorSequenceKeypoint.new(1, liveStops[4]),
+			})
+			wallpaperGradient.Rotation = fromRotation + (preset.rotation - fromRotation) * e
+			wallpaper.BackgroundColor3 = liveStops[1]
+			if k >= 1 then
+				wallpaperConn:Disconnect()
+				wallpaperConn = nil
+			end
+		end)
+
+		for i, band in ipairs(bandFrames) do
+			TweenService:Create(band, TweenInfo.new(0.42, Enum.EasingStyle.Quad), {
+				BackgroundColor3 = preset.bands[i],
 			}):Play()
 		end
+
+		for i, rings in ipairs(bloomGroups) do
+			local color = preset.blooms[i]
+			for _, ring in ipairs(rings) do
+				TweenService:Create(ring, TweenInfo.new(0.42, Enum.EasingStyle.Quad), {
+					BackgroundColor3 = color,
+				}):Play()
+			end
+		end
+
+		wallpaperIndex = index
+		liveRotation = preset.rotation
+		if wallpaperRow then
+			wallpaperRow.desc.Text = "当前壁纸：" .. preset.name
+		end
+		if aboutWallpaperValue then
+			aboutWallpaperValue.Text = preset.name
+		end
+		log("壁纸已切换：" .. preset.name .. "（" .. index .. "/" .. #WALLPAPERS .. "）", "info")
 	end
 
-	wallpaperIndex = index
-	if wallpaperRow then
-		wallpaperRow.desc.Text = "当前壁纸：" .. preset.name
-	end
-	if aboutWallpaperValue then
-		aboutWallpaperValue.Text = preset.name
-	end
-	log("壁纸已切换：" .. preset.name, "info")
 end
 
 --=============================================================
@@ -463,11 +610,12 @@ local island = new("Frame", {
 })
 corner(island, 13)
 
--- 岛内内容：一把小锁（整体淡入淡出）
+-- 岛内内容：一把小锁（动画期间才显示，平时 Visible=false 彻底隐藏）
 local islandContent = new("CanvasGroup", {
 	Size = UDim2.fromScale(1, 1),
 	BackgroundTransparency = 1,
 	GroupTransparency = 1,
+	Visible = false,
 	ZIndex = 37,
 	Parent = island,
 })
@@ -501,10 +649,14 @@ local lockBody = new("Frame", {
 })
 corner(lockBody, 2.6)
 
-local ISLAND_BASE = UDim2.fromOffset(86, 25)
-local ISLAND_WIDE = UDim2.fromOffset(90, 25) -- 只加宽 5%（86→90），高度不变
+local ISLAND_BASE_POS = UDim2.new(0.5, 0, 0, 9)
+local ISLAND_W = 86
+local ISLAND_W_WIDE = 90 -- 只加宽 5%（86 → 90），高度不变
+local ISLAND_H = 25
+local ISLAND_BASE = UDim2.fromOffset(ISLAND_W, ISLAND_H)
+local ISLAND_WIDE = UDim2.fromOffset(ISLAND_W_WIDE, ISLAND_H)
 
--- 展开后锁靠左，左侧只留 10px 呼吸位（右侧整段留白）
+-- 展开后锁靠左：左侧留 10px 呼吸位，右侧整段留白
 local ISLAND_LOCK_PAD = 10
 local LOCK_POS_CLOSED = UDim2.fromScale(0.5, 0.5)
 local LOCK_POS_OPEN = UDim2.fromOffset(ISLAND_LOCK_PAD + 8, 12.5)
@@ -519,36 +671,75 @@ local function resetIslandLock()
 end
 
 local function islandTween(inst, info, goal)
-	TweenService:Create(inst, info, goal):Play()
+	return TweenService:Create(inst, info, goal)
 end
 
--- 灵动岛：左右拉宽 + 锁滑到左侧 → 淡入 → 锁梁弹开 → 收回原样
-local function islandPulse(mode)
+-- 每次收尾都做一次硬复位：即使动画被打断，岛也一定回到原始尺寸
+local function islandHardReset()
+	island.Size = ISLAND_BASE
+	island.Position = ISLAND_BASE_POS
+	islandContent.Visible = false
+	islandContent.GroupTransparency = 1
 	resetIslandLock()
+end
+
+-- 灵动岛：加宽 + 锁滑到左边 → 淡入 → 锁梁弹开 → 整体收回
+-- 序号令牌：连点（解锁 / 上锁交替）时旧时间线直接作废，不会两套动画互相拉扯
+local islandSeq = 0
+
+local function islandPulse(mode)
+	islandSeq = islandSeq + 1
+	local seq = islandSeq
+	local function alive()
+		return seq == islandSeq
+	end
+
+	-- 从一个确定的起点开始，避免上一轮残留
+	resetIslandLock()
+	island.Size = ISLAND_BASE
+	islandContent.Visible = true
 	islandContent.GroupTransparency = 1
 
-	local toWide = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-	islandTween(island, toWide, { Size = ISLAND_WIDE })
-	islandTween(islandLock, toWide, { Position = LOCK_POS_OPEN })
-	islandTween(islandContent, TweenInfo.new(0.16), { GroupTransparency = 0 })
+	local open = TweenInfo.new(0.34, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+	islandTween(island, open, { Size = ISLAND_WIDE }):Play()
+	islandTween(islandLock, open, { Position = LOCK_POS_OPEN }):Play()
+	islandTween(islandContent, TweenInfo.new(0.15), { GroupTransparency = 0 }):Play()
 
+	-- 锁梁向上弹开（上锁时保持闭合，只做一次呼吸）
 	if mode ~= "lock" then
-		task.delay(0.2, function()
-			islandTween(lockShackle, TweenInfo.new(0.28, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+		task.delay(0.22, function()
+			if not alive() then
+				return
+			end
+			islandTween(lockShackle, TweenInfo.new(0.26, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
 				Position = SHACKLE_OPEN,
 				Rotation = -26,
-			})
+			}):Play()
 		end)
 	end
 
-	task.delay(0.8, function()
-		islandTween(islandContent, TweenInfo.new(0.18), { GroupTransparency = 1 })
+	task.delay(0.64, function()
+		if not alive() then
+			return
+		end
+		islandTween(islandContent, TweenInfo.new(0.14), { GroupTransparency = 1 }):Play()
 	end)
-	task.delay(0.94, function()
-		local back = TweenInfo.new(0.46, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut)
-		islandTween(island, back, { Size = ISLAND_BASE })
-		islandTween(islandLock, back, { Position = LOCK_POS_CLOSED })
-		task.delay(0.5, resetIslandLock)
+
+	task.delay(0.82, function()
+		if not alive() then
+			return
+		end
+		-- 先让锁彻底消失，再收回岛身，避免缩回时夹着半个小锁
+		islandContent.Visible = false
+		resetIslandLock()
+		local back = TweenInfo.new(0.44, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut)
+		islandTween(island, back, { Size = ISLAND_BASE }):Play()
+
+		task.delay(0.5, function()
+			if alive() then
+				islandHardReset()
+			end
+		end)
 	end)
 end
 
@@ -572,144 +763,150 @@ local WEEKDAYS = { "星期日", "星期一", "星期二", "星期三", "星期�
 --   第 4~15 位 = 正月至十二月的大小月（1 = 30 天）
 --   第 16 位     = 闰月是否 30 天
 --=============================================================
-local LUNAR_BASE_YEAR = 1950
-local LUNAR_INFO = {
-	0x06ca0, 0x0b550, 0x15355, 0x04da0, 0x0a5b0, 0x14573, 0x052b0, 0x0a9a8,
-	0x0e950, 0x06aa0, 0x0aea6, 0x0ab50, 0x04b60, 0x0aae4, 0x0a570, 0x05260,
-	0x0f263, 0x0d950, 0x05b57, 0x056a0, 0x096d0, 0x04dd5, 0x04ad0, 0x0a4d0,
-	0x0d4d4, 0x0d250, 0x0d558, 0x0b540, 0x0b6a0, 0x195a6, 0x095b0, 0x049b0,
-	0x0a974, 0x0a4b0, 0x0b27a, 0x06a50, 0x06d40, 0x0af46, 0x0ab60, 0x09570,
-	0x04af5, 0x04970, 0x064b0, 0x074a3, 0x0ea50, 0x06b58, 0x05ac0, 0x0ab60,
-	0x096d5, 0x092e0, 0x0c960, 0x0d954, 0x0d4a0, 0x0da50, 0x07552, 0x056a0,
-	0x0abb7, 0x025d0, 0x092d0, 0x0cab5, 0x0a950, 0x0b4a0, 0x0baa4, 0x0ad50,
-	0x055d9, 0x04ba0, 0x0a5b0, 0x15176, 0x052b0, 0x0a930, 0x07954, 0x06aa0,
-	0x0ad50, 0x05b52, 0x04b60, 0x0a6e6, 0x0a4e0, 0x0d260, 0x0ea65, 0x0d530,
-	0x05aa0, 0x076a3, 0x096d0, 0x04afb, 0x04ad0, 0x0a4d0, 0x1d0b6, 0x0d250,
-	0x0d520, 0x0dd45, 0x0b5a0, 0x056d0, 0x055b2, 0x049b0, 0x0a577, 0x0a4b0,
-	0x0aa50, 0x1b255, 0x06d20, 0x0ada0, 0x14b63, 0x09370, 0x049f8, 0x04970,
-	0x064b0, 0x168a6, 0x0ea50, 0x06aa0, 0x1a6c4, 0x0aae0, 0x092e0, 0x0d2e3,
-	0x0c960, 0x0d557, 0x0d4a0, 0x0da50, 0x05d55, 0x056a0, 0x0a6d0, 0x055d4,
-	0x052d0,
-}
+-- 整块塞进 do ... end，只留一个 lunarText 出去，省下十几个顶层局部变量
+local lunarText
 
-local LUNAR_MONTH_CN = { "正", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二" }
-local LUNAR_DAY_CN = {
-	"初一", "初二", "初三", "初四", "初五", "初六", "初七", "初八", "初九", "初十",
-	"十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十",
-	"廿一", "廿二", "廿三", "廿四", "廿五", "廿六", "廿七", "廿八", "廿九", "三十",
-}
-local GAN = { "甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸" }
-local ZHI = { "子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥" }
+do
+	local LUNAR_BASE_YEAR = 1950
+	local LUNAR_INFO = {
+		0x06ca0, 0x0b550, 0x15355, 0x04da0, 0x0a5b0, 0x14573, 0x052b0, 0x0a9a8,
+		0x0e950, 0x06aa0, 0x0aea6, 0x0ab50, 0x04b60, 0x0aae4, 0x0a570, 0x05260,
+		0x0f263, 0x0d950, 0x05b57, 0x056a0, 0x096d0, 0x04dd5, 0x04ad0, 0x0a4d0,
+		0x0d4d4, 0x0d250, 0x0d558, 0x0b540, 0x0b6a0, 0x195a6, 0x095b0, 0x049b0,
+		0x0a974, 0x0a4b0, 0x0b27a, 0x06a50, 0x06d40, 0x0af46, 0x0ab60, 0x09570,
+		0x04af5, 0x04970, 0x064b0, 0x074a3, 0x0ea50, 0x06b58, 0x05ac0, 0x0ab60,
+		0x096d5, 0x092e0, 0x0c960, 0x0d954, 0x0d4a0, 0x0da50, 0x07552, 0x056a0,
+		0x0abb7, 0x025d0, 0x092d0, 0x0cab5, 0x0a950, 0x0b4a0, 0x0baa4, 0x0ad50,
+		0x055d9, 0x04ba0, 0x0a5b0, 0x15176, 0x052b0, 0x0a930, 0x07954, 0x06aa0,
+		0x0ad50, 0x05b52, 0x04b60, 0x0a6e6, 0x0a4e0, 0x0d260, 0x0ea65, 0x0d530,
+		0x05aa0, 0x076a3, 0x096d0, 0x04afb, 0x04ad0, 0x0a4d0, 0x1d0b6, 0x0d250,
+		0x0d520, 0x0dd45, 0x0b5a0, 0x056d0, 0x055b2, 0x049b0, 0x0a577, 0x0a4b0,
+		0x0aa50, 0x1b255, 0x06d20, 0x0ada0, 0x14b63, 0x09370, 0x049f8, 0x04970,
+		0x064b0, 0x168a6, 0x0ea50, 0x06aa0, 0x1a6c4, 0x0aae0, 0x092e0, 0x0d2e3,
+		0x0c960, 0x0d557, 0x0d4a0, 0x0da50, 0x05d55, 0x056a0, 0x0a6d0, 0x055d4,
+		0x052d0,
+	}
 
--- 取某一位是否为 1（避免依赖位运算，Luau 里用整除更稳）
-local function bitOn(v, bit)
-	return math.floor(v / bit) % 2 == 1
-end
+	local LUNAR_MONTH_CN = { "正", "二", "三", "四", "五", "六", "七", "八", "九", "十", "十一", "十二" }
+	local LUNAR_DAY_CN = {
+		"初一", "初二", "初三", "初四", "初五", "初六", "初七", "初八", "初九", "初十",
+		"十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十",
+		"廿一", "廿二", "廿三", "廿四", "廿五", "廿六", "廿七", "廿八", "廿九", "三十",
+	}
+	local GAN = { "甲", "乙", "丙", "丁", "戊", "己", "庚", "辛", "壬", "癸" }
+	local ZHI = { "子", "丑", "寅", "卯", "辰", "巳", "午", "未", "申", "酉", "戌", "亥" }
 
-local function lunarInfoOf(y)
-	return LUNAR_INFO[y - LUNAR_BASE_YEAR + 1]
-end
-
-local function lunarLeapMonth(y)
-	local v = lunarInfoOf(y)
-	return v and (v % 16) or 0
-end
-
-local function lunarMonthDays(y, m)
-	local v = lunarInfoOf(y)
-	if not v then
-		return 29
-	end
-	return bitOn(v, 0x10000 / (2 ^ m)) and 30 or 29
-end
-
-local function lunarLeapDays(y)
-	if lunarLeapMonth(y) == 0 then
-		return 0
-	end
-	return bitOn(lunarInfoOf(y), 0x10000) and 30 or 29
-end
-
-local function lunarYearDays(y)
-	local total = 0
-	for m = 1, 12 do
-		total = total + lunarMonthDays(y, m)
-	end
-	return total + lunarLeapDays(y)
-end
-
--- 公历 → 序号（1970-01-01 为 0），纯整数运算，不受 os.time 时区影响
-local function dayNumber(y, m, d)
-	local yy = y
-	if m <= 2 then
-		yy = yy - 1
-	end
-	local era = math.floor(yy / 400)
-	local yoe = yy - era * 400
-	local doy = math.floor((153 * ((m + 9) % 12) + 2) / 5) + d - 1
-	local doe = yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy
-	return era * 146097 + doe - 719468
-end
-
-local LUNAR_BASE_DAY = dayNumber(LUNAR_BASE_YEAR, 2, 17) -- 1950 年正月初一
-
--- 返回：农历年、月、日、是否闰月
-local function solarToLunar(y, m, d)
-	local offset = dayNumber(y, m, d) - LUNAR_BASE_DAY
-	if offset < 0 then
-		return nil
+	-- 取某一位是否为 1（避免依赖位运算，Luau 里用整除更稳）
+	local function bitOn(v, bit)
+		return math.floor(v / bit) % 2 == 1
 	end
 
-	local ly = LUNAR_BASE_YEAR
-	while true do
-		local days = lunarYearDays(ly)
-		if offset < days then
-			break
+	local function lunarInfoOf(y)
+		return LUNAR_INFO[y - LUNAR_BASE_YEAR + 1]
+	end
+
+	local function lunarLeapMonth(y)
+		local v = lunarInfoOf(y)
+		return v and (v % 16) or 0
+	end
+
+	local function lunarMonthDays(y, m)
+		local v = lunarInfoOf(y)
+		if not v then
+			return 29
 		end
-		offset = offset - days
-		ly = ly + 1
+		return bitOn(v, 0x10000 / (2 ^ m)) and 30 or 29
 	end
 
-	local leap = lunarLeapMonth(ly)
-	local month = 1
-	local leapDone = false
-	while month <= 12 do
-		local isLeap = (leap == month) and leapDone
-		local days = isLeap and lunarLeapDays(ly) or lunarMonthDays(ly, month)
-		if offset < days then
-			return ly, month, offset + 1, isLeap
+	local function lunarLeapDays(y)
+		if lunarLeapMonth(y) == 0 then
+			return 0
 		end
-		offset = offset - days
-		if isLeap then
-			month = month + 1
-			leapDone = false
-		elseif leap == month then
-			leapDone = true
-		else
-			month = month + 1
+		return bitOn(lunarInfoOf(y), 0x10000) and 30 or 29
+	end
+
+	local function lunarYearDays(y)
+		local total = 0
+		for m = 1, 12 do
+			total = total + lunarMonthDays(y, m)
 		end
+		return total + lunarLeapDays(y)
 	end
 
-	return ly, 12, 30, false
-end
-
--- 形如「乙巳年九月十二」，闰月会写成「闰六月初一」
-local function lunarText(y, m, d)
-	local ly, lm, ld, isLeap = solarToLunar(y, m, d)
-	if not ly then
-		return ""
+	-- 公历 → 序号（1970-01-01 为 0），纯整数运算，不受 os.time 时区影响
+	local function dayNumber(y, m, d)
+		local yy = y
+		if m <= 2 then
+			yy = yy - 1
+		end
+		local era = math.floor(yy / 400)
+		local yoe = yy - era * 400
+		local doy = math.floor((153 * ((m + 9) % 12) + 2) / 5) + d - 1
+		local doe = yoe * 365 + math.floor(yoe / 4) - math.floor(yoe / 100) + doy
+		return era * 146097 + doe - 719468
 	end
-	local idx = (ly - 4) % 60
-	local gan = GAN[idx % 10 + 1]
-	local zhi = ZHI[idx % 12 + 1]
-	return string.format(
-		"农历%s%s年%s%s月%s",
-		gan,
-		zhi,
-		isLeap and "闰" or "",
-		LUNAR_MONTH_CN[lm] or "",
-		LUNAR_DAY_CN[ld] or ""
-	)
+
+	local LUNAR_BASE_DAY = dayNumber(LUNAR_BASE_YEAR, 2, 17) -- 1950 年正月初一
+
+	-- 返回：农历年、月、日、是否闰月
+	local function solarToLunar(y, m, d)
+		local offset = dayNumber(y, m, d) - LUNAR_BASE_DAY
+		if offset < 0 then
+			return nil
+		end
+
+		local ly = LUNAR_BASE_YEAR
+		while true do
+			local days = lunarYearDays(ly)
+			if offset < days then
+				break
+			end
+			offset = offset - days
+			ly = ly + 1
+		end
+
+		local leap = lunarLeapMonth(ly)
+		local month = 1
+		local leapDone = false
+		while month <= 12 do
+			local isLeap = (leap == month) and leapDone
+			local days = isLeap and lunarLeapDays(ly) or lunarMonthDays(ly, month)
+			if offset < days then
+				return ly, month, offset + 1, isLeap
+			end
+			offset = offset - days
+			if isLeap then
+				month = month + 1
+				leapDone = false
+			elseif leap == month then
+				leapDone = true
+			else
+				month = month + 1
+			end
+		end
+
+		return ly, 12, 30, false
+	end
+
+	-- 形如「乙巳年九月十二」，闰月会写成「闰六月初一」
+	lunarText = function(y, m, d)
+		local ly, lm, ld, isLeap = solarToLunar(y, m, d)
+		if not ly then
+			return ""
+		end
+		local idx = (ly - 4) % 60
+		local gan = GAN[idx % 10 + 1]
+		local zhi = ZHI[idx % 12 + 1]
+		return string.format(
+			"农历%s%s年%s%s月%s",
+			gan,
+			zhi,
+			isLeap and "闰" or "",
+			LUNAR_MONTH_CN[lm] or "",
+			LUNAR_DAY_CN[ld] or ""
+		)
+	end
+
 end
 
 local dateLabel = new("TextLabel", {
@@ -890,7 +1087,7 @@ task.defer(function()
 end)
 
 -- 底部小白条位置（离底 24px），提示条再往上留 24px 空隙
-local INDICATOR_Y = CONFIG.Height - 24
+local INDICATOR_Y = CONFIG.Height - 16 -- 小白条：离底 16，Dock 抬到它上面
 local SWIPE_HINT_Y = INDICATOR_Y - 24 - 18
 local swipeHint = new("TextLabel", {
 	Size = UDim2.new(1, 0, 0, 18),
@@ -958,7 +1155,7 @@ new("UIListLayout", {
 	FillDirection = Enum.FillDirection.Horizontal,
 	HorizontalAlignment = Enum.HorizontalAlignment.Left,
 	SortOrder = Enum.SortOrder.LayoutOrder,
-	Padding = UDim.new(0, 26),
+	Padding = UDim.new(0, 8), -- 4 列：4×60 + 3×8 = 264，正好塞满一行
 	Parent = tileRow,
 })
 
@@ -1240,7 +1437,7 @@ new("TextLabel", {
 	Position = UDim2.fromOffset(0, 404),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.GothamMedium,
-	Text = "PHONE   ·   v2.4",
+	Text = "PHONE   ·   v2.6",
 	TextSize = 9,
 	TextColor3 = COLORS.White,
 	TextTransparency = 0.78,
@@ -1253,7 +1450,7 @@ new("TextLabel", {
 
 local dock = new("Frame", {
 	Size = UDim2.new(1, -36, 0, 72),
-	Position = UDim2.fromOffset(18, 546),
+	Position = UDim2.fromOffset(18, 538),
 	BackgroundColor3 = COLORS.White,
 	BackgroundTransparency = 0.86,
 	BorderSizePixel = 0,
@@ -1527,17 +1724,21 @@ local function closePage(page)
 	if not page.Visible then
 		return
 	end
+	page.Position = UDim2.fromOffset(0, 0)
 	local tween = TweenService:Create(page, TweenInfo.new(0.24, Enum.EasingStyle.Quint, Enum.EasingDirection.In), {
 		Position = UDim2.fromOffset(CONFIG.Width, 0),
 	})
 	tween:Play()
 	tween.Completed:Connect(function()
 		page.Visible = false
+		page.Position = UDim2.fromOffset(CONFIG.Width, 0)
+		page.GroupTransparency = 0
 	end)
 end
 
 local function openPage(page)
 	page.Visible = true
+	page.GroupTransparency = 0
 	page.Position = UDim2.fromOffset(CONFIG.Width, 0)
 	TweenService:Create(page, TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
 		Position = UDim2.fromOffset(0, 0),
@@ -1555,16 +1756,19 @@ local function openPage(page)
 end
 
 local function makePage(name, title)
-	local page = new("Frame", {
+	-- 用 CanvasGroup：整页可以一起淡出（上滑返回时才有「化开」的感觉）
+	local page = new("CanvasGroup", {
 		Name = name,
 		Size = UDim2.fromScale(1, 1),
 		Position = UDim2.fromOffset(CONFIG.Width, 0),
 		BackgroundColor3 = COLORS.Page,
 		BorderSizePixel = 0,
+		GroupTransparency = 0,
 		Visible = false,
 		ZIndex = 30,
 		Parent = screen,
 	})
+	corner(page, CONFIG.Corner)
 
 	local back = new("TextButton", {
 		Size = UDim2.fromOffset(70, 26),
@@ -1778,7 +1982,7 @@ new("TextLabel", {
 	Position = UDim2.fromOffset(18, 404),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.Gotham,
-	Text = "HAVVK Phone · v2.4",
+	Text = "HAVVK Phone · v2.6",
 	TextSize = 9,
 	TextColor3 = COLORS.SubText,
 	TextTransparency = 0.25,
@@ -1970,7 +2174,7 @@ new("TextLabel", {
 	Position = UDim2.fromOffset(72, 42),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.Gotham,
-	Text = "调试面板 v2.4 · 构建 214",
+	Text = "调试面板 v2.6 · 构建 216",
 	TextSize = 9,
 	TextColor3 = COLORS.SubText,
 	TextXAlignment = Enum.TextXAlignment.Left,
@@ -2109,7 +2313,7 @@ aboutSection(4, "运行", {
 })
 
 local panelRows = {
-	{ "面板版本", "v2.4（构建 214）" },
+	{ "面板版本", "v2.6（构建 216）" },
 	{ "面板尺寸", string.format("%d × %d", CONFIG.Width, CONFIG.Height) },
 	{ "当前壁纸", WALLPAPERS[wallpaperIndex].name, "wallpaper" },
 	{ "日志条数", tostring(#logLines), "logs" },
@@ -2225,6 +2429,303 @@ for _, item in ipairs(logLines) do
 end
 
 --=============================================================
+-- 玩家列表页
+--   · 头像 / 昵称 / 进服时间 / 本局游玩时长 / 一键传送
+--   · 进服时间以脚本记录为准（脚本启动前已在场的玩家按启动时刻计）
+--=============================================================
+do
+	local joinAt = {}
+	local avatarCache = {}
+
+	local playerPage = makePage("Players", "玩家列表")
+	pages.players = playerPage
+
+	local countLabel = new("TextLabel", {
+		Size = UDim2.fromOffset(110, 16),
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -14, 0, 44),
+		BackgroundTransparency = 1,
+		Font = Enum.Font.GothamMedium,
+		Text = "在线 0 人",
+		TextSize = 10,
+		TextColor3 = COLORS.SubText,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		Parent = playerPage,
+	})
+
+	local refreshBtn = new("TextButton", {
+		Size = UDim2.fromOffset(44, 22),
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -14, 0, 64),
+		BackgroundColor3 = COLORS.White,
+		BackgroundTransparency = 0.9,
+		BorderSizePixel = 0,
+		AutoButtonColor = false,
+		Font = Enum.Font.GothamMedium,
+		Text = "刷新",
+		TextSize = 10,
+		TextColor3 = COLORS.Text,
+		Parent = playerPage,
+	})
+	corner(refreshBtn, 7)
+
+	local playerScroll = new("ScrollingFrame", {
+		Position = UDim2.fromOffset(0, 92),
+		Size = UDim2.new(1, 0, 1, -100),
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		CanvasSize = UDim2.new(0, 0, 0, 0),
+		AutomaticCanvasSize = Enum.AutomaticSize.Y,
+		ScrollingDirection = Enum.ScrollingDirection.Y,
+		ScrollBarThickness = 2,
+		ScrollBarImageColor3 = Color3.fromRGB(72, 80, 96),
+		VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
+		Parent = playerPage,
+	})
+
+	local playerList = new("Frame", {
+		Size = UDim2.new(1, -28, 0, 0),
+		Position = UDim2.fromOffset(14, 0),
+		AutomaticSize = Enum.AutomaticSize.Y,
+		BackgroundTransparency = 1,
+		Parent = playerScroll,
+	})
+	new("UIListLayout", {
+		Padding = UDim.new(0, 8),
+		SortOrder = Enum.SortOrder.LayoutOrder,
+		Parent = playerList,
+	})
+
+	local function fmtDuration(sec)
+		sec = math.max(0, math.floor(sec))
+		if sec < 60 then
+			return sec .. " 秒"
+		elseif sec < 3600 then
+			return string.format("%d 分 %02d 秒", math.floor(sec / 60), sec % 60)
+		end
+		return string.format("%d 时 %02d 分", math.floor(sec / 3600), math.floor((sec % 3600) / 60))
+	end
+
+	local function fmtClock(t)
+		return os.date("%H:%M", t)
+	end
+
+	local function teleportTo(target)
+		local myChar = player.Character
+		local myRoot = myChar and myChar:FindFirstChild("HumanoidRootPart")
+		local tChar = target.Character
+		local tRoot = tChar and tChar:FindFirstChild("HumanoidRootPart")
+		if not (myRoot and tRoot) then
+			log("传送失败：" .. target.Name .. " 当前不在场景中", "warn")
+			return
+		end
+		local ok = pcall(function()
+			myChar:PivotTo(tRoot.CFrame * CFrame.new(0, 0, 3.4))
+		end)
+		if ok then
+			log("已传送到 " .. target.Name, "success")
+		else
+			log("传送失败：" .. target.Name, "error")
+		end
+	end
+
+	local rows = {}
+	local rebuild -- 前向声明
+
+	local function makeRow(target, index)
+		local row = new("Frame", {
+			Size = UDim2.new(1, 0, 0, 58),
+			BackgroundColor3 = COLORS.White,
+			BackgroundTransparency = 0.93,
+			BorderSizePixel = 0,
+			LayoutOrder = index,
+			Parent = playerList,
+		})
+		corner(row, 13)
+		stroke(row, COLORS.White, 0.92, 1)
+
+		-- 头像
+		local avatar = new("ImageLabel", {
+			Name = "Avatar",
+			Size = UDim2.fromOffset(36, 36),
+			Position = UDim2.fromOffset(11, 11),
+			BackgroundColor3 = Color3.fromRGB(38, 42, 56),
+			BackgroundTransparency = 0,
+			BorderSizePixel = 0,
+			Image = "",
+			ScaleType = Enum.ScaleType.Crop,
+			Parent = row,
+		})
+		corner(avatar, 10)
+
+		local cached = avatarCache[target.UserId]
+		if cached then
+			avatar.Image = cached
+		else
+			task.spawn(function()
+				local ok, url = pcall(function()
+					return Players:GetUserThumbnailAsync(
+						target.UserId,
+						Enum.ThumbnailType.HeadShot,
+						Enum.ThumbnailSize.Size48x48
+					)
+				end)
+				if ok and url and url ~= "" then
+					avatarCache[target.UserId] = url
+					if avatar.Parent then
+						avatar.Image = url
+					end
+				end
+			end)
+		end
+
+		-- 昵称（自己是「你」的高亮标记）
+		new("TextLabel", {
+			Size = UDim2.new(1, -110, 0, 16),
+			Position = UDim2.fromOffset(56, 10),
+			BackgroundTransparency = 1,
+			Font = Enum.Font.GothamBold,
+			Text = target.Name .. (target == player and "（你）" or ""),
+			TextSize = 11,
+			TextColor3 = COLORS.Text,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Parent = row,
+		})
+
+		local info = new("TextLabel", {
+			Size = UDim2.new(1, -110, 0, 14),
+			Position = UDim2.fromOffset(56, 27),
+			BackgroundTransparency = 1,
+			Font = Enum.Font.Gotham,
+			Text = "",
+			TextSize = 9,
+			TextColor3 = COLORS.SubText,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Parent = row,
+		})
+
+		local tp = new("TextButton", {
+			Size = UDim2.fromOffset(42, 26),
+			AnchorPoint = Vector2.new(1, 0.5),
+			Position = UDim2.new(1, -11, 0.5, 0),
+			BackgroundColor3 = COLORS.Accent,
+			BackgroundTransparency = 0.12,
+			BorderSizePixel = 0,
+			AutoButtonColor = false,
+			Font = Enum.Font.GothamBold,
+			Text = "TP",
+			TextSize = 10,
+			TextColor3 = COLORS.White,
+			Parent = row,
+		})
+		corner(tp, 8)
+		tp.MouseButton1Click:Connect(function()
+			teleportTo(target)
+		end)
+
+		return row, info
+	end
+
+	-- 每秒刷新一次时长文本（只改文本，不重建控件）
+	local function refreshTimes()
+		if not playerPage.Visible then
+			return
+		end
+		local now = os.time()
+		for _, item in ipairs(rows) do
+			local startT = joinAt[item.player] or now
+			item.info.Text = string.format(
+				"%s 进服 · 已玩 %s",
+				fmtClock(startT),
+				fmtDuration(now - startT)
+			)
+		end
+	end
+
+	rebuild = function()
+		for _, item in ipairs(rows) do
+			item.row:Destroy()
+		end
+		rows = {}
+
+		local list = Players:GetPlayers()
+		table.sort(list, function(a, b)
+			return (joinAt[a] or 0) < (joinAt[b] or 0)
+		end)
+
+		for i, target in ipairs(list) do
+			local row, info = makeRow(target, i)
+			local startT = joinAt[target] or os.time()
+			info.Text = string.format("%s 进服 · 已玩 %s", fmtClock(startT), fmtDuration(os.time() - startT))
+			rows[#rows + 1] = { row = row, info = info, player = target }
+		end
+
+		countLabel.Text = string.format("在线 %d 人", #list)
+		if #list == 0 then
+			countLabel.Text = "在线 0 人"
+		end
+	end
+
+	refreshBtn.MouseButton1Click:Connect(function()
+		rebuild()
+		refreshTimes()
+		log("玩家列表已刷新（" .. #Players:GetPlayers() .. " 人）", "info")
+	end)
+
+	-- 会话计时：脚本启动时已在场的玩家按启动时刻算
+	local bootTime = os.time()
+	for _, target in ipairs(Players:GetPlayers()) do
+		joinAt[target] = bootTime
+	end
+	Players.PlayerAdded:Connect(function(target)
+		joinAt[target] = os.time()
+		if playerPage.Visible then
+			rebuild()
+		end
+	end)
+	Players.PlayerRemoving:Connect(function(target)
+		joinAt[target] = nil
+		if playerPage.Visible then
+			rebuild()
+		end
+	end)
+
+	-- 打开时重建 + 起一个 1 秒的计时器（页面关掉就空转，几乎不占开销）
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			refreshTimes()
+		end
+	end)
+
+	-- 第 4 个应用：玩家列表
+	makeTile(tileRow, {
+		order = 4,
+		name = "玩家列表",
+		abbr = "PLR",
+		color = Color3.fromRGB(120, 132, 255),
+		color2 = Color3.fromRGB(90, 196, 255),
+		onClick = function()
+			openPage(playerPage)
+			rebuild()
+			refreshTimes()
+		end,
+	})
+
+	-- 打开页面时也刷新一次（openPage 里统一走这里）
+	local originalOpen = openPage
+	openPage = function(page)
+		originalOpen(page)
+		if page == playerPage then
+			rebuild()
+			refreshTimes()
+		end
+	end
+end
+
+--=============================================================
 -- Dock 按钮（依赖上面的页面对象）
 --=============================================================
 local reopenBtn
@@ -2292,6 +2793,132 @@ dockLogDot = new("Frame", {
 corner(dockLogDot, 4)
 
 --=============================================================
+-- 底部上滑返回桌面
+--   · 解锁后底部常驻一条小白条（iOS 的 home indicator）
+--   · 在小白条那一带往上拖：页面跟着手指走、逐渐透明，
+--     松手超过阈值就一路飞出屏幕，没到阈值就弹回原位
+--=============================================================
+local homePill = makeIndicator(screen, INDICATOR_Y, 52)
+homePill.BackgroundTransparency = 1 -- 锁屏时由锁屏层自己那条负责
+
+do
+	local function activePage()
+		for _, page in pairs(pages) do
+			if page.Visible then
+				return page
+			end
+		end
+		return nil
+	end
+
+	local homeDrag = nil
+
+	-- 主屏落回来的那一下回弹
+	local function bounceHome(dy)
+		homeGroup.Position = UDim2.fromOffset(0, math.min(10, dy * 0.12))
+		TweenService:Create(homeGroup, TweenInfo.new(0.26, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+			Position = UDim2.fromOffset(0, 0),
+		}):Play()
+	end
+
+	-- 没拉够：页面弹回原位
+	local function settlePage(page, dy)
+		TweenService:Create(page, TweenInfo.new(0.24, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+			Position = UDim2.fromOffset(0, 0),
+			GroupTransparency = 0,
+		}):Play()
+		bounceHome(dy)
+	end
+
+	local function goHome(page)
+		if not page or not page.Visible then
+			return
+		end
+		local info = TweenInfo.new(0.28, Enum.EasingStyle.Quint, Enum.EasingDirection.In)
+		TweenService:Create(page, info, {
+			Position = UDim2.fromOffset(0, -CONFIG.Height * 0.62),
+			GroupTransparency = 1,
+		}):Play()
+		bounceHome(0)
+
+		local ref = page
+		task.delay(0.3, function()
+			if ref.Visible then
+				ref.Visible = false
+				ref.Position = UDim2.fromOffset(CONFIG.Width, 0)
+				ref.GroupTransparency = 0
+			end
+		end)
+		if ref == pages.log then
+			logVisible = false
+			refreshUnread()
+		end
+	end
+
+	-- 底部热区：只覆盖小白条那一条，不挡 Dock 图标和页面内容
+	local homeSwipe = new("Frame", {
+		Name = "HomeSwipe",
+		Size = UDim2.new(1, -36, 0, 34),
+		Position = UDim2.fromOffset(18, CONFIG.Height - 30),
+		BackgroundTransparency = 1,
+		Active = true,
+		ZIndex = 53,
+		Parent = screen,
+	})
+
+	homeSwipe.InputBegan:Connect(function(input)
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1
+			and input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+		local page = activePage()
+		if not page then
+			return
+		end
+		homeDrag = { page = page, startY = input.Position.Y, dy = 0 }
+	end)
+
+	UserInputService.InputChanged:Connect(function(input)
+		if not homeDrag then
+			return
+		end
+		if input.UserInputType ~= Enum.UserInputType.MouseMovement
+			and input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+		local raw = homeDrag.startY - input.Position.Y
+		homeDrag.dy = math.clamp(raw, 0, CONFIG.Height * 0.7)
+		local page = homeDrag.page
+		if not page.Visible then
+			homeDrag = nil
+			return
+		end
+		-- 手指往上带，页面向上走并淡出；越往上阻力越大
+		page.Position = UDim2.fromOffset(0, -homeDrag.dy * 0.78)
+		page.GroupTransparency = math.min(0.9, homeDrag.dy / (CONFIG.Height * 0.55))
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if not homeDrag then
+			return
+		end
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1
+			and input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+		local page = homeDrag.page
+		local dy = homeDrag.dy
+		homeDrag = nil
+		if dy >= 52 then
+			goHome(page)
+		else
+			-- 没拉够：弹回原位，不写日志（避免拖一下就刷一条）
+			settlePage(page, dy)
+		end
+	end)
+end
+
+--=============================================================
 -- 解锁 / 上锁
 --=============================================================
 unlocked = false
@@ -2316,6 +2943,7 @@ function unlock()
 	homeGroup.Visible = true
 	homeGroup.GroupTransparency = 1
 	homeGroup.Position = UDim2.fromOffset(0, 26)
+	homePill.BackgroundTransparency = 0.34 -- 解锁后底部才出现小白条
 
 	islandPulse("unlock")
 	marqueePause()
@@ -2343,6 +2971,20 @@ function lock()
 	end
 	unlocking = true
 	unlocked = false
+
+	-- 上锁前把所有页面收掉，否则页面会浮在锁屏上面
+	for _, page in pairs(pages) do
+		if page.Visible then
+			page.Visible = false
+			page.Position = UDim2.fromOffset(CONFIG.Width, 0)
+			page.GroupTransparency = 0
+		end
+	end
+	if logVisible then
+		logVisible = false
+		refreshUnread()
+	end
+	homePill.BackgroundTransparency = 1
 
 	lockGroup.Visible = true
 	setLockProgress(-CONFIG.Height, 1)
