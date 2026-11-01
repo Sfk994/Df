@@ -13,13 +13,14 @@
 	        - 相机升到高空垂直俯视，屏幕中心即落点
 	        - 拖拽屏幕平移视野（内容跟随手指）
 	        - 左下角虚拟摇杆：推杆持续移动落点，适配触摸屏
+	        - 摇杆右侧「快 / 慢」按钮：调摇杆移速 0.4×–3.0×，可长按连发
 	        - 滚轮 / 双指捏合 / 面板按钮调整高度
 	        - 地面光环 + 屏幕十字准星提示精确落点
 	        - 底部独立「传送到此」按钮确认，无落点时自动禁用
 
 	  交互：
 	    · 拖拽标题栏或底部小白条移动窗口
-	    · 右上角圆点：黄 = 最小化，红 = 关闭；最小化后出现绿点 = 还原
+	    · 右上角圆点：绿 = 最小化 / 还原（同一个点），红 = 关闭
 	    · 最小化后收缩成小胶囊，显示「传送模块」而不是时间
 	    · 窗口边框是一圈缓慢旋转的细彩虹线
 	    · 不提供界面缩放，窗口大小固定，小屏自动整体适配
@@ -44,6 +45,7 @@ end
 local CONFIG = {
 	Width = 264,
 	Height = 272,
+	PadRight = 20,
 	HeaderHeight = 48,
 	BottomBarHeight = 14,
 	MinimizedWidth = 148,
@@ -68,7 +70,10 @@ local GOD = {
 	PanLimit = 4096,
 	RayTop = 4000,
 	RayBottom = 2000,
-	JoySpeed = 1.15,   -- 摇杆满推时每秒移动的高度倍数
+	JoySpeed = 1.15,   -- 摇杆满推时每秒移动的高度倍数（基准）
+	JoyMin = 0.4,      -- 摇杆速度倍率下限
+	JoyMax = 3.0,      -- 上限
+	JoyStep = 0.2,     -- 每次点击的步进
 }
 
 local THEME = {
@@ -268,6 +273,8 @@ new("Frame", {
 	Parent = header,
 })
 
+local dotGlyphs = {}
+
 local function makeDot(color, offsetX, glyph)
 	local btn = new("TextButton", {
 		Size = UDim2.fromOffset(12, 12),
@@ -284,8 +291,10 @@ local function makeDot(color, offsetX, glyph)
 	})
 	corner(btn, 6)
 
+	dotGlyphs[btn] = glyph
+
 	btn.MouseEnter:Connect(function()
-		btn.Text = glyph
+		btn.Text = dotGlyphs[btn] or glyph
 		btn.Size = UDim2.fromOffset(13, 13)
 	end)
 	btn.MouseLeave:Connect(function()
@@ -295,11 +304,9 @@ local function makeDot(color, offsetX, glyph)
 	return btn
 end
 
-local closeDot = makeDot(THEME.DotRed, 15, "×")
-local minDot = makeDot(THEME.DotYellow, 33, "−")
--- 绿点只在最小化时出现，负责还原（不再有放大 / 缩放）
-local restoreDot = makeDot(THEME.DotGreen, 33, "+")
-restoreDot.Visible = false
+local closeDot = makeDot(THEME.DotRed, 16, "×")
+-- 绿点：展开时 = 最小化，最小化时 = 还原（同一个按钮，不再有放大 / 缩放）
+local minDot = makeDot(THEME.DotGreen, 35, "−")
 
 local logo = new("Frame", {
 	Size = UDim2.fromOffset(22, 22),
@@ -402,16 +409,16 @@ local scroll = new("ScrollingFrame", {
 	CanvasSize = UDim2.new(0, 0, 0, 0),
 	AutomaticCanvasSize = Enum.AutomaticSize.Y,
 	ScrollingDirection = Enum.ScrollingDirection.Y,
-	ScrollBarThickness = 2,
+	ScrollBarThickness = 3,
 	ScrollBarImageColor3 = Color3.fromRGB(70, 78, 92),
-	VerticalScrollBarInset = Enum.ScrollBarInset.None,
+	VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
 	Parent = body,
 })
 new("UIPadding", {
 	PaddingTop = UDim.new(0, CONFIG.PadY),
 	PaddingBottom = UDim.new(0, CONFIG.PadY),
 	PaddingLeft = UDim.new(0, CONFIG.PadX),
-	PaddingRight = UDim.new(0, CONFIG.PadX),
+	PaddingRight = UDim.new(0, CONFIG.PadRight),
 	Parent = scroll,
 })
 
@@ -476,7 +483,7 @@ local function makeToggle(parent, state, onChange)
 	local track = new("TextButton", {
 		Size = UDim2.fromOffset(38, 21),
 		AnchorPoint = Vector2.new(1, 0.5),
-		Position = UDim2.new(1, -12, 0.5, 0),
+		Position = UDim2.new(1, -14, 0.5, 0),
 		BackgroundColor3 = state and THEME.Accent or Color3.fromRGB(56, 62, 76),
 		BorderSizePixel = 0,
 		AutoButtonColor = false,
@@ -546,7 +553,7 @@ local function makeCard(opts)
 	stroke(card, Color3.fromRGB(42, 47, 58), 1)
 
 	new("TextLabel", {
-		Size = UDim2.new(1, -84, 0, 15),
+		Size = UDim2.new(1, -90, 0, 15),
 		Position = UDim2.fromOffset(13, 11),
 		BackgroundTransparency = 1,
 		Font = Enum.Font.GothamBold,
@@ -558,7 +565,7 @@ local function makeCard(opts)
 		Parent = card,
 	})
 	local desc = new("TextLabel", {
-		Size = UDim2.new(1, -84, 0, 13),
+		Size = UDim2.new(1, -90, 0, 13),
 		Position = UDim2.fromOffset(13, 27),
 		BackgroundTransparency = 1,
 		Font = Enum.Font.Gotham,
@@ -775,9 +782,9 @@ new("TextLabel", {
 })
 
 local godExit = new("TextButton", {
-	Size = UDim2.fromOffset(18, 18),
+	Size = UDim2.fromOffset(20, 20),
 	AnchorPoint = Vector2.new(1, 0),
-	Position = UDim2.new(1, -9, 0, 9),
+	Position = UDim2.new(1, -12, 0, 8),
 	BackgroundColor3 = Color3.fromRGB(56, 62, 76),
 	BorderSizePixel = 0,
 	AutoButtonColor = false,
@@ -911,11 +918,114 @@ new("UIGradient", {
 })
 new("UIStroke", { Color = Color3.new(1, 1, 1), Thickness = 1, Transparency = 0.5, Parent = joyKnob })
 
+--=============================================================
+-- 摇杆移速：快 / 慢（摇杆右侧竖排）
+--=============================================================
+local joySpeedMul = 1.0
+local joySpeedHold = 0          -- -1 慢 / 1 快 / 0 松手
+local joySpeedHoldT = 0
+local joySpeedAccT = 0
+
+local SPEED_BOX_W = 46
+local SPEED_BOX_H = JOY_SIZE
+
+local speedBox = new("Frame", {
+	Name = "JoySpeed",
+	Size = UDim2.fromOffset(SPEED_BOX_W, SPEED_BOX_H),
+	AnchorPoint = Vector2.new(0, 1),
+	Position = UDim2.new(0, 18 + JOY_SIZE + 10, 1, -26),
+	BackgroundColor3 = THEME.Background,
+	BackgroundTransparency = 0.35,
+	BorderSizePixel = 0,
+	Active = true,
+	ZIndex = 3,
+	Parent = overlay,
+})
+corner(speedBox, 20)
+new("UIStroke", { Color = THEME.Stroke, Thickness = 1, Transparency = 0.25, Parent = speedBox })
+
+local joySpeedValue = new("TextLabel", {
+	Size = UDim2.new(1, 0, 0, 22),
+	Position = UDim2.fromOffset(0, SPEED_BOX_H * 0.5 - 11),
+	BackgroundTransparency = 1,
+	Font = Enum.Font.GothamBold,
+	Text = "1.0×",
+	TextSize = 11,
+	TextColor3 = THEME.Text,
+	TextXAlignment = Enum.TextXAlignment.Center,
+	ZIndex = 4,
+	Parent = speedBox,
+})
+
+local function makeSpeedBtn(textText, y, color)
+	local btn = new("TextButton", {
+		Size = UDim2.fromOffset(SPEED_BOX_W - 10, 36),
+		Position = UDim2.fromOffset(5, y),
+		BackgroundColor3 = THEME.Card,
+		BorderSizePixel = 0,
+		AutoButtonColor = false,
+		Font = Enum.Font.GothamBold,
+		Text = textText,
+		TextSize = 11,
+		TextColor3 = color,
+		ZIndex = 4,
+		Parent = speedBox,
+	})
+	corner(btn, 9)
+	stroke(btn, Color3.fromRGB(42, 47, 58), 1)
+	return btn
+end
+
+local fastBtn = makeSpeedBtn("快", 6, THEME.Green)
+local slowBtn = makeSpeedBtn("慢", SPEED_BOX_H - 42, THEME.SubText)
+
+local function applyJoySpeed()
+	joySpeedValue.Text = string.format("%.1f×", joySpeedMul)
+	local maxed = joySpeedMul >= GOD.JoyMax - 0.001
+	local mined = joySpeedMul <= GOD.JoyMin + 0.001
+	fastBtn.TextColor3 = maxed and THEME.SubText or THEME.Green
+	slowBtn.TextColor3 = mined and THEME.SubText or THEME.Text
+end
+
+local function nudgeJoySpeed(dir)
+	joySpeedMul = math.clamp(
+		math.floor((joySpeedMul + dir * GOD.JoyStep) * 10 + 0.5) / 10,
+		GOD.JoyMin, GOD.JoyMax
+	)
+	applyJoySpeed()
+end
+
+local function bindSpeedBtn(btn, dir)
+	local down = btn.MouseButton1Down
+	if down then
+		down:Connect(function()
+			joySpeedHold = dir
+			joySpeedHoldT = 0
+			joySpeedAccT = 0
+			nudgeJoySpeed(dir)
+			TweenService:Create(btn, TweenInfo.new(0.08), { BackgroundColor3 = Color3.fromRGB(58, 66, 86) }):Play()
+			task.delay(0.1, function()
+				TweenService:Create(btn, TweenInfo.new(0.18), { BackgroundColor3 = THEME.Card }):Play()
+			end)
+		end)
+	end
+	local up = btn.MouseButton1Up
+	if up then
+		up:Connect(function()
+			joySpeedHold = 0
+		end)
+	end
+end
+
+bindSpeedBtn(fastBtn, 1)
+bindSpeedBtn(slowBtn, -1)
+applyJoySpeed()
+
 -- 底部操作条
 local godBar = new("Frame", {
 	Size = UDim2.fromOffset(268, 60),
-	AnchorPoint = Vector2.new(0.5, 1),
-	Position = UDim2.new(0.5, 0, 1, -52),
+	AnchorPoint = Vector2.new(1, 1),
+	Position = UDim2.new(1, -18, 1, -26),
 	BackgroundColor3 = THEME.Background,
 	BackgroundTransparency = 0.05,
 	BorderSizePixel = 0,
@@ -956,7 +1066,7 @@ godStateLabel = new("TextLabel", {
 	Position = UDim2.fromOffset(14, 40),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.Gotham,
-	Text = "移动屏幕选择落点",
+	Text = "摇杆或拖拽选择落点",
 	TextSize = 9,
 	TextColor3 = Color3.fromRGB(108, 117, 133),
 	TextXAlignment = Enum.TextXAlignment.Left,
@@ -967,7 +1077,7 @@ godStateLabel = new("TextLabel", {
 tpBtn = new("TextButton", {
 	Size = UDim2.fromOffset(88, 36),
 	AnchorPoint = Vector2.new(1, 0.5),
-	Position = UDim2.new(1, -12, 0.5, 0),
+	Position = UDim2.new(1, -14, 0.5, 0),
 	BackgroundColor3 = THEME.Green,
 	BorderSizePixel = 0,
 	AutoButtonColor = false,
@@ -1170,7 +1280,7 @@ local function setTpVisual(on)
 	tpBtn.BackgroundColor3 = on and THEME.Green or Color3.fromRGB(52, 58, 70)
 	tpBtn.TextColor3 = on and Color3.fromRGB(12, 34, 24) or Color3.fromRGB(130, 138, 152)
 	tpBtn.AutoButtonColor = false
-	godStateLabel.Text = on and "拖拽屏幕选择落点" or "此处没有可站立的地面"
+	godStateLabel.Text = on and "摇杆或拖拽选择落点" or "此处没有可站立的地面"
 	godStateLabel.TextColor3 = on and Color3.fromRGB(108, 117, 133) or THEME.Yellow
 end
 
@@ -1178,10 +1288,22 @@ local function updateGod(dt)
 	local cam = workspace.CurrentCamera
 	if not cam then return end
 
+	-- 按住快 / 慢按钮超过 0.4s 后连续步进
+	if joySpeedHold ~= 0 then
+		joySpeedHoldT = joySpeedHoldT + dt
+		if joySpeedHoldT > 0.4 then
+			joySpeedAccT = joySpeedAccT + dt
+			while joySpeedAccT >= 0.07 do
+				joySpeedAccT = joySpeedAccT - 0.07
+				nudgeJoySpeed(joySpeedHold)
+			end
+		end
+	end
+
 	-- 摇杆：推杆方向 = 落点移动方向，推得越远越快
 	local joyMag = joyVec.Magnitude
 	if joyMag > 0.05 then
-		local speed = godHeight * GOD.JoySpeed * math.min(joyMag, 1)
+		local speed = godHeight * GOD.JoySpeed * joySpeedMul * math.min(joyMag, 1)
 		camCenter = clampCenter(camCenter + Vector3.new(joyVec.X, 0, joyVec.Y) * (speed * dt))
 	end
 
@@ -1215,8 +1337,8 @@ local function updateGod(dt)
 		godTextTimer = 0
 		godCoordLabel.Text = string.format("X %d   Y %d   Z %d",
 			math.floor(godTarget.X), math.floor(godTarget.Y), math.floor(godTarget.Z))
-		godInfoLabel.Text = string.format("高度 %d · 视野半径 %dm",
-			math.floor(godHeight), math.floor(godHeight * 0.7))
+		godInfoLabel.Text = string.format("高度 %d · 摇杆 %.1f×",
+			math.floor(godHeight), joySpeedMul)
 		setTpVisual(godValid)
 	end
 end
@@ -1279,6 +1401,7 @@ function setGodMode(on)
 		marker.Parent = nil
 		tpVisualOn = nil
 		if resetJoy then resetJoy() end
+		joySpeedHold = 0
 
 		local cam = workspace.CurrentCamera
 		if cam then
@@ -1472,6 +1595,7 @@ UserInputService.InputEnded:Connect(function(input)
 		panning = false
 		panLast = nil
 		lastPinch = nil
+		joySpeedHold = 0
 		if joyActive and input == joyInput then
 			resetJoy()
 		end
@@ -1619,8 +1743,8 @@ function setMinimized(state)
 	minimizedDot.Visible = state
 	body.Visible = not state
 	bottomBar.Visible = not state
-	minDot.Visible = not state
-	restoreDot.Visible = state
+	minDot.Visible = true
+	dotGlyphs[minDot] = state and "+" or "−"
 
 	local headerH = state and CONFIG.MinimizedHeight or CONFIG.HeaderHeight
 	TweenService:Create(header, TweenInfo.new(0.18), { Size = UDim2.new(1, 0, 0, headerH) }):Play()
@@ -1644,15 +1768,7 @@ closeDot.MouseButton1Click:Connect(function()
 end)
 
 minDot.MouseButton1Click:Connect(function()
-	if not minimized then
-		setMinimized(true)
-	end
-end)
-
-restoreDot.MouseButton1Click:Connect(function()
-	if minimized then
-		setMinimized(false)
-	end
+	setMinimized(not minimized)
 end)
 
 local camera = workspace.CurrentCamera

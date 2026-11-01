@@ -39,6 +39,7 @@ end
 local CONFIG = {
 	Width = 264,
 	Height = 410,
+	PadRight = 20,
 	MinWidth = 232,
 	MinHeight = 280,
 	HeaderHeight = 48,
@@ -186,6 +187,8 @@ new("Frame", {
 	Parent = header,
 })
 
+local dotGlyphs = {}
+
 local function makeDot(color, offsetX, glyph)
 	local btn = new("TextButton", {
 		Size = UDim2.fromOffset(12, 12),
@@ -203,8 +206,9 @@ local function makeDot(color, offsetX, glyph)
 	corner(btn, 6)
 
 	-- 悬停时像 macOS 一样浮现符号
+	dotGlyphs[btn] = glyph
 	btn.MouseEnter:Connect(function()
-		btn.Text = glyph
+		btn.Text = dotGlyphs[btn] or glyph
 		btn.Size = UDim2.fromOffset(13, 13)
 	end)
 	btn.MouseLeave:Connect(function()
@@ -214,10 +218,9 @@ local function makeDot(color, offsetX, glyph)
 	return btn
 end
 
--- 右对齐，视觉顺序（左→右）：最小化 · 放大 · 关闭
-local closeDot = makeDot(THEME.DotRed, 15, "×")
-local zoomDot = makeDot(THEME.DotGreen, 33, "+")
-local minDot = makeDot(THEME.DotYellow, 51, "−")
+-- 右对齐，视觉顺序（左→右）：最小化 · 关闭
+local closeDot = makeDot(THEME.DotRed, 16, "×")
+local minDot = makeDot(THEME.DotGreen, 35, "−")
 
 local logo = new("Frame", {
 	Size = UDim2.fromOffset(22, 22),
@@ -329,7 +332,7 @@ new("UIPadding", {
 	PaddingTop = UDim.new(0, CONFIG.PadY),
 	PaddingBottom = UDim.new(0, CONFIG.PadY),
 	PaddingLeft = UDim.new(0, CONFIG.PadX),
-	PaddingRight = UDim.new(0, CONFIG.PadX),
+	PaddingRight = UDim.new(0, CONFIG.PadRight),
 	Parent = scroll,
 })
 
@@ -1040,7 +1043,6 @@ end)
 local pos = Vector2.new(0, 0)
 local winW, winH = CONFIG.Width, CONFIG.Height
 local minimized = false
-local zoomed = false
 local restoreW, restoreH = CONFIG.Width, CONFIG.Height
 
 local function viewportSize()
@@ -1067,22 +1069,14 @@ local function apply()
 	window.Position = UDim2.fromOffset(math.floor(pos.X), math.floor(pos.Y))
 end
 
+-- 只做「小屏整体适配」，不提供放大 / 缩放功能
 local function updateScale()
 	local vp = viewportSize()
-	local base = math.clamp(math.min(
+	uiScale.Scale = math.clamp(math.min(
 		1,
 		(vp.Y - 32) / CONFIG.Height,
 		(vp.X - 32) / CONFIG.Width
 	), 0.6, 1)
-
-	-- 放大后的上限：不能超出视口，也不超过 1.3 倍
-	local maxAllowed = math.max(0.6, math.min(
-		1.3,
-		(vp.Y - 24) / CONFIG.Height,
-		(vp.X - 24) / CONFIG.Width
-	))
-
-	uiScale.Scale = math.clamp(base * (zoomed and 1.22 or 1), 0.6, maxAllowed)
 end
 
 local function relayout(center)
@@ -1107,7 +1101,6 @@ end
 -- 拖动 / 缩放
 --=============================================================
 local dragState = nil
-local resizeState = nil
 
 -- 关键：InputObject.Position 是 Vector3，统一取 XY
 local function inputXY(input)
@@ -1123,82 +1116,19 @@ local function bindDrag(object)
 			return
 		end
 		dragState = { startInput = inputXY(input), origin = pos }
-		resizeState = nil
 	end)
 end
 
--- 右下角缩放手柄：热区是透明的正方形按钮，视觉是旋转 45° 被裁出来的三角形
-local GRIP_HIT = 24
-local grip = new("TextButton", {
-	Name = "Grip",
-	Size = UDim2.fromOffset(GRIP_HIT, GRIP_HIT),
-	AnchorPoint = Vector2.new(1, 1),
-	Position = UDim2.new(1, 0, 1, 0),
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	AutoButtonColor = false,
-	Text = "",
-	Parent = window,
-})
-
-local gripVisual = new("Frame", {
-	Name = "GripVisual",
-	Size = UDim2.fromOffset(28, 28),
-	AnchorPoint = Vector2.new(0.5, 0.5),
-	Position = UDim2.new(1, 0, 1, 0),
-	Rotation = 45,
-	BackgroundColor3 = Color3.new(1, 1, 1),
-	BackgroundTransparency = 0.8,
-	BorderSizePixel = 0,
-	Active = false,
-	ZIndex = 5,
-	Parent = window,
-})
-grip.ZIndex = 6
-
-grip.MouseEnter:Connect(function()
-	TweenService:Create(gripVisual, TweenInfo.new(0.12), { BackgroundTransparency = 0.55 }):Play()
-end)
-grip.MouseLeave:Connect(function()
-	TweenService:Create(gripVisual, TweenInfo.new(0.12), { BackgroundTransparency = 0.8 }):Play()
-end)
-
-grip.InputBegan:Connect(function(input)
-	if input.UserInputType ~= Enum.UserInputType.MouseButton1
-		and input.UserInputType ~= Enum.UserInputType.Touch then
-		return
-	end
-	if minimized then return end
-
-	resizeState = { startInput = inputXY(input), w = winW, h = winH }
-	dragState = nil
-end)
-
 UserInputService.InputChanged:Connect(function(input)
+	if not dragState then return end
 	if input.UserInputType ~= Enum.UserInputType.MouseMovement
 		and input.UserInputType ~= Enum.UserInputType.Touch then
 		return
 	end
 
-	if dragState then
-		local delta = inputXY(input) - dragState.startInput
-		pos = clampPos(dragState.origin + delta)
-		apply()
-	elseif resizeState then
-		local vp = viewportSize()
-		local scale = math.max(uiScale.Scale, 0.01)
-		local delta = (inputXY(input) - resizeState.startInput) / scale
-		local maxW = math.max(220, (vp.X - 12) / scale)
-		local maxH = math.max(200, (vp.Y - 12) / scale)
-
-		winW = math.clamp(resizeState.w + delta.X, math.min(CONFIG.MinWidth, maxW), maxW)
-		winH = math.clamp(resizeState.h + delta.Y, math.min(CONFIG.MinHeight, maxH), maxH)
-		winW = math.floor(winW)
-		winH = math.floor(winH)
-		restoreW, restoreH = winW, winH
-		pos = clampPos(pos)
-		apply()
-	end
+	local delta = inputXY(input) - dragState.startInput
+	pos = clampPos(dragState.origin + delta)
+	apply()
 end)
 
 -- 抬起手指 / 松开鼠标时统一收尾，避免状态卡住导致「拖一次以后再也拖不动」
@@ -1206,7 +1136,6 @@ UserInputService.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1
 		or input.UserInputType == Enum.UserInputType.Touch then
 		dragState = nil
-		resizeState = nil
 		-- 松手即停止长按升降（在按钮外松开同样生效）
 		if holdDir ~= 0 then
 			stopHold()
@@ -1234,9 +1163,8 @@ local function setMinimized(state)
 	minimizedDot.Visible = state
 	body.Visible = not state
 	bottomBar.Visible = not state
-	grip.Visible = not state
-	gripVisual.Visible = not state
-	minDot.Visible = not state
+	minDot.Visible = true
+	dotGlyphs[minDot] = state and "+" or "−"
 
 	local headerH = state and CONFIG.MinimizedHeight or CONFIG.HeaderHeight
 	TweenService:Create(header, TweenInfo.new(0.18), { Size = UDim2.new(1, 0, 0, headerH) }):Play()
@@ -1261,21 +1189,7 @@ closeDot.MouseButton1Click:Connect(function()
 end)
 
 minDot.MouseButton1Click:Connect(function()
-	if not minimized then
-		setMinimized(true)
-	end
-end)
-
-zoomDot.MouseButton1Click:Connect(function()
-	-- 最小化时绿点负责还原，展开时负责放大 / 还原
-	if minimized then
-		setMinimized(false)
-		return
-	end
-	zoomed = not zoomed
-	updateScale()
-	pos = clampPos(pos)
-	apply()
+	setMinimized(not minimized)
 end)
 
 local camera = workspace.CurrentCamera

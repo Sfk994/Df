@@ -938,7 +938,8 @@ local function makePage(name, layoutKind, opts)
 			CellSize = UDim2.fromOffset(CONFIG.AppCellWidth, CONFIG.AppCellHeight),
 			CellPadding = UDim2.new(0, 8, 0, 12),
 			FillDirectionMaxCells = 3,      -- 一行最多 3 个，放不下自动换行
-			HorizontalAlignment = Enum.HorizontalAlignment.Center,
+			HorizontalAlignment = Enum.HorizontalAlignment.Left,   -- 始终贴左上，宽屏不会向中间靠
+			VerticalAlignment = Enum.VerticalAlignment.Top,
 			SortOrder = Enum.SortOrder.LayoutOrder,
 			Parent = list,
 		})
