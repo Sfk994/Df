@@ -12,16 +12,17 @@
 	    · 上帝视角（新增）
 	        - 相机升到高空垂直俯视，屏幕中心即落点
 	        - 拖拽屏幕平移视野（内容跟随手指）
+	        - 左下角虚拟摇杆：推杆持续移动落点，适配触摸屏
 	        - 滚轮 / 双指捏合 / 面板按钮调整高度
 	        - 地面光环 + 屏幕十字准星提示精确落点
 	        - 底部独立「传送到此」按钮确认，无落点时自动禁用
 
 	  交互：
 	    · 拖拽标题栏或底部小白条移动窗口
-	    · 右下角半透明三角拖拽缩放
-	    · 右上角三个圆点：黄 = 最小化，绿 = 放大 / 还原，红 = 关闭
+	    · 右上角圆点：黄 = 最小化，红 = 关闭；最小化后出现绿点 = 还原
 	    · 最小化后收缩成小胶囊，显示「传送模块」而不是时间
 	    · 窗口边框是一圈缓慢旋转的细彩虹线
+	    · 不提供界面缩放，窗口大小固定，小屏自动整体适配
 	==============================================================
 ]]
 
@@ -43,8 +44,6 @@ end
 local CONFIG = {
 	Width = 264,
 	Height = 272,
-	MinWidth = 232,
-	MinHeight = 210,
 	HeaderHeight = 48,
 	BottomBarHeight = 14,
 	MinimizedWidth = 148,
@@ -69,6 +68,7 @@ local GOD = {
 	PanLimit = 4096,
 	RayTop = 4000,
 	RayBottom = 2000,
+	JoySpeed = 1.15,   -- 摇杆满推时每秒移动的高度倍数
 }
 
 local THEME = {
@@ -180,7 +180,6 @@ local uiScale = new("UIScale", { Scale = 1, Parent = window })
 local pos = Vector2.new(0, 0)
 local winW, winH = CONFIG.Width, CONFIG.Height
 local minimized = false
-local zoomed = false
 local restoreW, restoreH = CONFIG.Width, CONFIG.Height
 
 local function viewportSize()
@@ -207,21 +206,14 @@ local function apply()
 	window.Position = UDim2.fromOffset(math.floor(pos.X), math.floor(pos.Y))
 end
 
+-- 只做「小屏整体适配」，不提供放大 / 缩放功能
 local function updateScale()
 	local vp = viewportSize()
-	local base = math.clamp(math.min(
-		1,
+	local fit = math.min(
 		(vp.Y - 32) / CONFIG.Height,
 		(vp.X - 32) / CONFIG.Width
-	), 0.6, 1)
-
-	local maxAllowed = math.max(0.6, math.min(
-		1.3,
-		(vp.Y - 24) / CONFIG.Height,
-		(vp.X - 24) / CONFIG.Width
-	))
-
-	uiScale.Scale = math.clamp(base * (zoomed and 1.22 or 1), 0.6, maxAllowed)
+	)
+	uiScale.Scale = math.clamp(math.min(1, fit), 0.6, 1)
 end
 
 local function relayout(center)
@@ -251,7 +243,7 @@ local tpCooldown = false
 local godTarget, godValid = nil, false
 local clickToggle, godToggle
 local godHint, godCardDesc
-local updateStatus, setGodMode, setGodHeight, setMinimized
+local updateStatus, setGodMode, setGodHeight, setMinimized, resetJoy
 local godCoordLabel, godInfoLabel, godStateLabel, tpBtn
 
 --=============================================================
@@ -304,8 +296,10 @@ local function makeDot(color, offsetX, glyph)
 end
 
 local closeDot = makeDot(THEME.DotRed, 15, "×")
-local zoomDot = makeDot(THEME.DotGreen, 33, "+")
-local minDot = makeDot(THEME.DotYellow, 51, "−")
+local minDot = makeDot(THEME.DotYellow, 33, "−")
+-- 绿点只在最小化时出现，负责还原（不再有放大 / 缩放）
+local restoreDot = makeDot(THEME.DotGreen, 33, "+")
+restoreDot.Visible = false
 
 local logo = new("Frame", {
 	Size = UDim2.fromOffset(22, 22),
@@ -773,7 +767,7 @@ new("TextLabel", {
 	Position = UDim2.fromOffset(12, 20),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.Gotham,
-	Text = "拖拽平移 · 滚轮 / 双指缩放",
+	Text = "拖拽或摇杆选点 · 双指缩放",
 	TextSize = 9,
 	TextColor3 = THEME.SubText,
 	TextXAlignment = Enum.TextXAlignment.Left,
@@ -845,6 +839,77 @@ for _, tick in ipairs({
 		Parent = cross,
 	})
 end
+
+--=============================================================
+-- 左下角虚拟摇杆（触摸优先）
+--=============================================================
+local JOY_SIZE = 118
+local JOY_KNOB = 48
+local JOY_RADIUS = JOY_SIZE * 0.5 - JOY_KNOB * 0.5 - 5
+
+local joyBase = new("Frame", {
+	Name = "Joystick",
+	Size = UDim2.fromOffset(JOY_SIZE, JOY_SIZE),
+	AnchorPoint = Vector2.new(0, 1),
+	Position = UDim2.new(0, 18, 1, -26),
+	BackgroundColor3 = THEME.Background,
+	BackgroundTransparency = 0.35,
+	BorderSizePixel = 0,
+	Active = true,
+	ZIndex = 3,
+	Parent = overlay,
+})
+corner(joyBase, JOY_SIZE * 0.5)
+new("UIStroke", { Color = THEME.Accent, Thickness = 1, Transparency = 0.5, Parent = joyBase })
+
+local joyRing = new("Frame", {
+	Size = UDim2.fromOffset(JOY_SIZE - 32, JOY_SIZE - 32),
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.fromScale(0.5, 0.5),
+	BackgroundTransparency = 1,
+	BorderSizePixel = 0,
+	Parent = joyBase,
+})
+corner(joyRing, (JOY_SIZE - 32) * 0.5)
+new("UIStroke", { Color = Color3.new(1, 1, 1), Thickness = 1, Transparency = 0.9, Parent = joyRing })
+
+-- 四个方向的小刻度，暗示「推杆方向 = 落点方向」
+for _, tick in ipairs({
+	{ Size = UDim2.fromOffset(1, 6), AnchorPoint = Vector2.new(0.5, 0), Position = UDim2.new(0.5, 0, 0, 9) },
+	{ Size = UDim2.fromOffset(1, 6), AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, -9) },
+	{ Size = UDim2.fromOffset(6, 1), AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 9, 0.5, 0) },
+	{ Size = UDim2.fromOffset(6, 1), AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -9, 0.5, 0) },
+}) do
+	new("Frame", {
+		Size = tick.Size,
+		AnchorPoint = tick.AnchorPoint,
+		Position = tick.Position,
+		BackgroundColor3 = Color3.new(1, 1, 1),
+		BackgroundTransparency = 0.65,
+		BorderSizePixel = 0,
+		Parent = joyBase,
+	})
+end
+
+local joyKnob = new("Frame", {
+	Size = UDim2.fromOffset(JOY_KNOB, JOY_KNOB),
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.fromScale(0.5, 0.5),
+	BackgroundColor3 = THEME.Accent,
+	BorderSizePixel = 0,
+	ZIndex = 4,
+	Parent = joyBase,
+})
+corner(joyKnob, JOY_KNOB * 0.5)
+new("UIGradient", {
+	Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(120, 158, 255)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(150, 108, 255)),
+	}),
+	Rotation = 45,
+	Parent = joyKnob,
+})
+new("UIStroke", { Color = Color3.new(1, 1, 1), Thickness = 1, Transparency = 0.5, Parent = joyKnob })
 
 -- 底部操作条
 local godBar = new("Frame", {
@@ -1057,6 +1122,7 @@ end
 -- 上帝视角：相机
 --=============================================================
 local camCenter = Vector3.new(0, 0, 0)
+local joyVec = Vector2.new(0, 0)
 local godConn = nil
 local godClock = 0
 local godTextTimer = 0
@@ -1078,6 +1144,14 @@ local function groundBelow()
 		Vector3.new(camCenter.X, GOD.RayTop, camCenter.Z),
 		Vector3.new(0, -(GOD.RayTop + GOD.RayBottom), 0),
 		godRayParams
+	)
+end
+
+local function clampCenter(c)
+	return Vector3.new(
+		math.clamp(c.X, -GOD.PanLimit, GOD.PanLimit),
+		0,
+		math.clamp(c.Z, -GOD.PanLimit, GOD.PanLimit)
 	)
 end
 
@@ -1103,6 +1177,13 @@ end
 local function updateGod(dt)
 	local cam = workspace.CurrentCamera
 	if not cam then return end
+
+	-- 摇杆：推杆方向 = 落点移动方向，推得越远越快
+	local joyMag = joyVec.Magnitude
+	if joyMag > 0.05 then
+		local speed = godHeight * GOD.JoySpeed * math.min(joyMag, 1)
+		camCenter = clampCenter(camCenter + Vector3.new(joyVec.X, 0, joyVec.Y) * (speed * dt))
+	end
 
 	local hit = groundBelow()
 	if hit and hit.Position then
@@ -1197,6 +1278,7 @@ function setGodMode(on)
 		overlay.Visible = false
 		marker.Parent = nil
 		tpVisualOn = nil
+		if resetJoy then resetJoy() end
 
 		local cam = workspace.CurrentCamera
 		if cam then
@@ -1281,21 +1363,73 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 end)
 
 --=============================================================
--- 输入：上帝视角平移 / 缩放
+-- 输入：上帝视角 —— 摇杆 / 拖拽平移 / 缩放
 --=============================================================
 local panning = false
+local panLast = nil
 local lastPinch = nil
+local joyActive = false
+local joyInput = nil
 
+local function joyCenter()
+	local absPos = joyBase.AbsolutePosition
+	local absSize = joyBase.AbsoluteSize
+	return Vector2.new(absPos.X + absSize.X * 0.5, absPos.Y + absSize.Y * 0.5)
+end
+
+local function moveJoy(pos)
+	local d = Vector2.new(pos.X, pos.Y) - joyCenter()
+	local m = d.Magnitude
+	if m > JOY_RADIUS then
+		d = d * (JOY_RADIUS / m)
+	end
+	joyKnob.Position = UDim2.new(0.5, d.X, 0.5, d.Y)
+
+	local v = Vector2.new(d.X / JOY_RADIUS, d.Y / JOY_RADIUS)
+	if v.Magnitude > 1 then
+		v = v.Unit
+	end
+	joyVec = v
+end
+
+function resetJoy()
+	joyActive = false
+	joyInput = nil
+	joyVec = Vector2.new(0, 0)
+	joyKnob.Position = UDim2.fromScale(0.5, 0.5)
+end
+
+-- 摇杆：按住即生效，推到边缘为满速
+joyBase.InputBegan:Connect(function(input)
+	if not godActive then return end
+	if input.UserInputType ~= Enum.UserInputType.MouseButton1
+		and input.UserInputType ~= Enum.UserInputType.Touch then
+		return
+	end
+	joyActive = true
+	joyInput = input
+	panning = false
+	moveJoy(input.Position)
+end)
+
+-- 空白处拖拽：抓住地图拖，内容跟手
 godBg.InputBegan:Connect(function(input)
 	if not godActive then return end
 	if input.UserInputType == Enum.UserInputType.MouseButton1
 		or input.UserInputType == Enum.UserInputType.Touch then
 		panning = true
+		panLast = Vector2.new(input.Position.X, input.Position.Y)
 	end
 end)
 
 UserInputService.InputChanged:Connect(function(input)
 	if not godActive then return end
+
+	-- 摇杆优先，其余输入忽略
+	if joyActive and input == joyInput then
+		moveJoy(input.Position)
+		return
+	end
 
 	if input.UserInputType == Enum.UserInputType.MouseWheel then
 		setGodHeight(godHeight - input.Position.Z * 40)
@@ -1304,7 +1438,7 @@ UserInputService.InputChanged:Connect(function(input)
 
 	if input.UserInputType == Enum.UserInputType.Touch then
 		local touches = UserInputService:GetTouches()
-		if touches and #touches >= 2 then
+		if touches and #touches >= 2 and not joyActive and not panning then
 			local a = touches[1].Position
 			local b = touches[2].Position
 			local d = (Vector2.new(a.X, a.Y) - Vector2.new(b.X, b.Y)).Magnitude
@@ -1312,7 +1446,6 @@ UserInputService.InputChanged:Connect(function(input)
 				setGodHeight(godHeight * (lastPinch / d))
 			end
 			lastPinch = d
-			panning = false
 			return
 		end
 		lastPinch = nil
@@ -1324,20 +1457,24 @@ UserInputService.InputChanged:Connect(function(input)
 		return
 	end
 
+	-- 用绝对坐标自己算增量，触摸端不依赖 InputObject.Delta
+	local now = Vector2.new(input.Position.X, input.Position.Y)
+	local d = panLast and (now - panLast) or Vector2.new(0, 0)
+	panLast = now
+
 	local s = worldPerPixel()
-	local d = input.Delta
-	camCenter = Vector3.new(
-		math.clamp(camCenter.X - d.X * s, -GOD.PanLimit, GOD.PanLimit),
-		0,
-		math.clamp(camCenter.Z - d.Y * s, -GOD.PanLimit, GOD.PanLimit)
-	)
+	camCenter = clampCenter(camCenter - Vector3.new(d.X, 0, d.Y) * s)
 end)
 
 UserInputService.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1
 		or input.UserInputType == Enum.UserInputType.Touch then
 		panning = false
+		panLast = nil
 		lastPinch = nil
+		if joyActive and input == joyInput then
+			resetJoy()
+		end
 	end
 end)
 
@@ -1424,10 +1561,9 @@ dragHandle.MouseLeave:Connect(function()
 end)
 
 --=============================================================
--- 拖动 / 缩放
+-- 拖动（只移动，不缩放）
 --=============================================================
 local dragState = nil
-local resizeState = nil
 
 local function inputXY(input)
 	local p = input.Position
@@ -1442,88 +1578,24 @@ local function bindDrag(object)
 			return
 		end
 		dragState = { startInput = inputXY(input), origin = pos }
-		resizeState = nil
 	end)
 end
 
-local GRIP_HIT = 24
-local grip = new("TextButton", {
-	Name = "Grip",
-	Size = UDim2.fromOffset(GRIP_HIT, GRIP_HIT),
-	AnchorPoint = Vector2.new(1, 1),
-	Position = UDim2.new(1, 0, 1, 0),
-	BackgroundTransparency = 1,
-	BorderSizePixel = 0,
-	AutoButtonColor = false,
-	Text = "",
-	Parent = window,
-})
-
-local gripVisual = new("Frame", {
-	Name = "GripVisual",
-	Size = UDim2.fromOffset(28, 28),
-	AnchorPoint = Vector2.new(0.5, 0.5),
-	Position = UDim2.new(1, 0, 1, 0),
-	Rotation = 45,
-	BackgroundColor3 = Color3.new(1, 1, 1),
-	BackgroundTransparency = 0.8,
-	BorderSizePixel = 0,
-	Active = false,
-	ZIndex = 5,
-	Parent = window,
-})
-grip.ZIndex = 6
-
-grip.MouseEnter:Connect(function()
-	TweenService:Create(gripVisual, TweenInfo.new(0.12), { BackgroundTransparency = 0.55 }):Play()
-end)
-grip.MouseLeave:Connect(function()
-	TweenService:Create(gripVisual, TweenInfo.new(0.12), { BackgroundTransparency = 0.8 }):Play()
-end)
-
-grip.InputBegan:Connect(function(input)
-	if input.UserInputType ~= Enum.UserInputType.MouseButton1
-		and input.UserInputType ~= Enum.UserInputType.Touch then
-		return
-	end
-	if minimized then return end
-
-	resizeState = { startInput = inputXY(input), w = winW, h = winH }
-	dragState = nil
-end)
-
 UserInputService.InputChanged:Connect(function(input)
+	if not dragState then return end
 	if input.UserInputType ~= Enum.UserInputType.MouseMovement
 		and input.UserInputType ~= Enum.UserInputType.Touch then
 		return
 	end
-
-	if dragState then
-		local delta = inputXY(input) - dragState.startInput
-		pos = clampPos(dragState.origin + delta)
-		apply()
-	elseif resizeState then
-		local vp = viewportSize()
-		local scale = math.max(uiScale.Scale, 0.01)
-		local delta = (inputXY(input) - resizeState.startInput) / scale
-		local maxW = math.max(220, (vp.X - 12) / scale)
-		local maxH = math.max(180, (vp.Y - 12) / scale)
-
-		winW = math.clamp(resizeState.w + delta.X, math.min(CONFIG.MinWidth, maxW), maxW)
-		winH = math.clamp(resizeState.h + delta.Y, math.min(CONFIG.MinHeight, maxH), maxH)
-		winW = math.floor(winW)
-		winH = math.floor(winH)
-		restoreW, restoreH = winW, winH
-		pos = clampPos(pos)
-		apply()
-	end
+	local delta = inputXY(input) - dragState.startInput
+	pos = clampPos(dragState.origin + delta)
+	apply()
 end)
 
 UserInputService.InputEnded:Connect(function(input)
 	if input.UserInputType == Enum.UserInputType.MouseButton1
 		or input.UserInputType == Enum.UserInputType.Touch then
 		dragState = nil
-		resizeState = nil
 	end
 end)
 
@@ -1535,7 +1607,7 @@ bindDrag(minimizedLabel)
 bindDrag(dragHandle)
 
 --=============================================================
--- 最小化 / 放大 / 关闭
+-- 最小化 / 还原 / 关闭
 --=============================================================
 function setMinimized(state)
 	minimized = state
@@ -1547,9 +1619,8 @@ function setMinimized(state)
 	minimizedDot.Visible = state
 	body.Visible = not state
 	bottomBar.Visible = not state
-	grip.Visible = not state
-	gripVisual.Visible = not state
 	minDot.Visible = not state
+	restoreDot.Visible = state
 
 	local headerH = state and CONFIG.MinimizedHeight or CONFIG.HeaderHeight
 	TweenService:Create(header, TweenInfo.new(0.18), { Size = UDim2.new(1, 0, 0, headerH) }):Play()
@@ -1578,15 +1649,10 @@ minDot.MouseButton1Click:Connect(function()
 	end
 end)
 
-zoomDot.MouseButton1Click:Connect(function()
+restoreDot.MouseButton1Click:Connect(function()
 	if minimized then
 		setMinimized(false)
-		return
 	end
-	zoomed = not zoomed
-	updateScale()
-	pos = clampPos(pos)
-	apply()
 end)
 
 local camera = workspace.CurrentCamera
