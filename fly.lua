@@ -323,21 +323,19 @@ local scroll = new("ScrollingFrame", {
 	CanvasSize = UDim2.new(0, 0, 0, 0),
 	AutomaticCanvasSize = Enum.AutomaticSize.Y,
 	ScrollingDirection = Enum.ScrollingDirection.Y,
-	ScrollBarThickness = 2,
+	ScrollBarThickness = 3,
 	ScrollBarImageColor3 = Color3.fromRGB(70, 78, 92),
-	VerticalScrollBarInset = Enum.ScrollBarInset.None,
+	VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
 	Parent = body,
 })
-new("UIPadding", {
-	PaddingTop = UDim.new(0, CONFIG.PadY),
-	PaddingBottom = UDim.new(0, CONFIG.PadY),
-	PaddingLeft = UDim.new(0, CONFIG.PadX),
-	PaddingRight = UDim.new(0, CONFIG.PadRight),
-	Parent = scroll,
-})
-
+-- 注意：ScrollingFrame 的 UIPadding 只会偏移、不会缩窄子项宽度，
+-- 会让卡片右侧溢出被裁切，所以这里改成显式宽度
 local list = new("Frame", {
-	Size = UDim2.new(1, 0, 0, 0),
+	Size = UDim2.fromOffset(
+		CONFIG.Width - CONFIG.PadX - CONFIG.PadRight,
+		0
+	),
+	Position = UDim2.fromOffset(CONFIG.PadX, CONFIG.PadY),
 	AutomaticSize = Enum.AutomaticSize.Y,
 	BackgroundTransparency = 1,
 	Parent = scroll,
@@ -810,6 +808,14 @@ new("UIGradient", {
 	}),
 	Rotation = 0,
 	Parent = speedFill,
+})
+
+-- 列表底部留白（宽度显式给出，不依赖 ScrollFrame 的 padding）
+new("Frame", {
+	Size = UDim2.new(1, 0, 0, CONFIG.PadY),
+	BackgroundTransparency = 1,
+	LayoutOrder = 9999,
+	Parent = list,
 })
 
 --=============================================================

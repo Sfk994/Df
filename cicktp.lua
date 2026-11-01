@@ -414,16 +414,14 @@ local scroll = new("ScrollingFrame", {
 	VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
 	Parent = body,
 })
-new("UIPadding", {
-	PaddingTop = UDim.new(0, CONFIG.PadY),
-	PaddingBottom = UDim.new(0, CONFIG.PadY),
-	PaddingLeft = UDim.new(0, CONFIG.PadX),
-	PaddingRight = UDim.new(0, CONFIG.PadRight),
-	Parent = scroll,
-})
-
+-- 注意：ScrollingFrame 的 UIPadding 只会偏移、不会缩窄子项宽度，
+-- 会让卡片右侧溢出被裁切，所以这里改成显式宽度
 local list = new("Frame", {
-	Size = UDim2.new(1, 0, 0, 0),
+	Size = UDim2.fromOffset(
+		CONFIG.Width - CONFIG.PadX - CONFIG.PadRight,
+		0
+	),
+	Position = UDim2.fromOffset(CONFIG.PadX, CONFIG.PadY),
 	AutomaticSize = Enum.AutomaticSize.Y,
 	BackgroundTransparency = 1,
 	Parent = scroll,
