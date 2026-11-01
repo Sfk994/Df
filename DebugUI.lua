@@ -1,7 +1,7 @@
 --[[
 	==============================================================
-	  DebugUI · Roblox 调试面板 v1.5
-	  （标题栏新增循环滚动字幕，随窗口缩放自动收放）
+	  DebugUI · Roblox 调试面板 v1.6
+	  （HAVVK科技：自定义速度 / 跳跃高度输入卡 + 飞行、点击 TP 远程脚本）
 	==============================================================
 	  使用方法：
 	    1. 在 StarterGui 里新建一个 LocalScript
@@ -16,6 +16,8 @@
 	    · 最小化后收缩成一个小胶囊，只留时间 + 放大 + 关闭
 	    · 左侧「主功能 / 设置」切换右侧内容；主功能为 2×2 卡片，窗口变窄自动变 1×4
 	    · 标题栏空白处循环滚动字幕，窗口拉宽自动变长、拉太窄则隐藏
+	    · 主功能：速度 / 跳跃改成可输入数值（回车或点「应用」生效）
+	    · 飞行 / 点击 TP 点「运行」会 game:HttpGet 拉取远程脚本并执行
 
 	  对外接口：
 	    _G.DebugUI:Log("消息", "info")       -- info / success / warn / error
@@ -38,8 +40,8 @@ local playerGui = player:WaitForChild("PlayerGui")
 -- 配置
 --=============================================================
 local CONFIG = {
-	Title = "调试面板",
-	Subtitle = "管理员 · v1.5",
+	Title = "HAVVK科技",
+	Subtitle = "管理员 · v1.6",
 	Width = 560,
 	Height = 400,
 	MinWidth = 300,
@@ -50,6 +52,8 @@ local CONFIG = {
 	MinimizedWidth = 152,
 	CardHeight = 66,
 	MaxLogLines = 150,
+	DefaultSpeed = 16,    -- 自定义速度输入框默认值
+	DefaultJump = 50,     -- 跳跃高度输入框默认值
 	MarqueeSpeed = 46,    -- 标题栏滚动字幕速度（像素 / 秒）
 	MarqueeTextSize = 11,
 }
@@ -247,7 +251,7 @@ new("TextLabel", {
 	Size = UDim2.fromScale(1, 1),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.GothamBold,
-	Text = "D",
+	Text = "H",
 	TextSize = 12,
 	TextColor3 = Color3.new(1, 1, 1),
 	Parent = logo,
@@ -735,6 +739,151 @@ local function makeCard(parent, opts)
 end
 
 --=============================================================
+-- 远程脚本 / 角色工具
+--=============================================================
+local SCRIPT_URLS = {
+	fly = "https://raw.githubusercontent.com/Sfk994/Df/refs/heads/main/fly.lua",
+	tp  = "https://raw.githubusercontent.com/Sfk994/Df/refs/heads/main/cicktp.lua",
+}
+
+local function fmtNum(v)
+	if v % 1 == 0 then
+		return tostring(math.floor(v))
+	end
+	return string.format("%.1f", v)
+end
+
+local function getHumanoid()
+	local char = player.Character
+	if not char then return nil end
+	return char:FindFirstChildOfClass("Humanoid")
+end
+
+local function httpGet(url)
+	-- 执行器一般直接提供 game:HttpGet；原生环境退回 HttpService
+	if game.HttpGet then
+		return game:HttpGet(url)
+	end
+	local HttpService = game:GetService("HttpService")
+	return HttpService:GetAsync(url)
+end
+
+local function runRemote(name, url)
+	log(string.format("正在加载「%s」…", name), "info")
+	task.spawn(function()
+		local ok, err = pcall(function()
+			local source = httpGet(url)
+			local fn = loadstring(source)
+			if not fn then
+				error("当前环境不支持 loadstring（需要执行器）")
+			end
+			fn()
+		end)
+		if ok then
+			log(string.format("「%s」已执行", name), "success")
+		else
+			log(string.format("「%s」执行失败：%s", name, tostring(err)), "error")
+		end
+	end)
+end
+
+-- 带输入框的卡片：标题 + 数字输入 + 应用（回车也能应用）
+local function makeNumberCard(parent, opts)
+	local card = new("TextButton", {
+		Size = UDim2.new(1, 0, 0, CONFIG.CardHeight),
+		BackgroundColor3 = THEME.Card,
+		BorderSizePixel = 0,
+		AutoButtonColor = false,
+		Text = "",
+		LayoutOrder = opts.order or 1,
+		Parent = parent,
+	})
+	corner(card, 10)
+	stroke(card, Color3.fromRGB(42, 47, 58), 1)
+
+	new("TextLabel", {
+		Size = UDim2.new(1, -28, 0, 15),
+		Position = UDim2.fromOffset(14, 9),
+		BackgroundTransparency = 1,
+		Font = Enum.Font.GothamBold,
+		Text = opts.title,
+		TextSize = 13,
+		TextColor3 = THEME.Text,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Parent = card,
+	})
+
+	local box = new("TextBox", {
+		Size = UDim2.new(1, -82, 0, 24),
+		Position = UDim2.fromOffset(14, 30),
+		BackgroundColor3 = Color3.fromRGB(28, 32, 41),
+		BorderSizePixel = 0,
+		Font = Enum.Font.Gotham,
+		Text = fmtNum(opts.value or 0),
+		PlaceholderText = fmtNum(opts.value or 0),
+		PlaceholderColor3 = Color3.fromRGB(90, 98, 114),
+		TextSize = 12,
+		TextColor3 = THEME.Text,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		ClearTextOnFocus = false,
+		Parent = card,
+	})
+	corner(box, 6)
+	stroke(box, Color3.fromRGB(44, 50, 62), 1)
+
+	local applyBtn = new("TextButton", {
+		Size = UDim2.fromOffset(46, 24),
+		AnchorPoint = Vector2.new(1, 0),
+		Position = UDim2.new(1, -14, 0, 30),
+		BackgroundColor3 = Color3.fromRGB(44, 49, 61),
+		BorderSizePixel = 0,
+		AutoButtonColor = false,
+		Font = Enum.Font.GothamMedium,
+		Text = "应用",
+		TextSize = 11,
+		TextColor3 = THEME.Text,
+		Parent = card,
+	})
+	corner(applyBtn, 6)
+
+	local lastValid = fmtNum(opts.value or 0)
+
+	local function apply()
+		local value = tonumber(box.Text)
+		if not value then
+			box.Text = lastValid
+			log("请输入有效数字（" .. opts.title .. "）", "warn")
+			return
+		end
+		value = math.clamp(value, opts.min or 1, opts.max or 1000)
+		box.Text = fmtNum(value)
+		lastValid = box.Text
+		if opts.apply then opts.apply(value) end
+	end
+
+	applyBtn.MouseEnter:Connect(function()
+		TweenService:Create(applyBtn, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(54, 60, 74) }):Play()
+	end)
+	applyBtn.MouseLeave:Connect(function()
+		TweenService:Create(applyBtn, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(44, 49, 61) }):Play()
+	end)
+	applyBtn.MouseButton1Click:Connect(apply)
+	box.FocusLost:Connect(function(enterPressed)
+		if enterPressed then apply() end
+	end)
+
+	card.MouseEnter:Connect(function()
+		TweenService:Create(card, TweenInfo.new(0.12), { BackgroundColor3 = THEME.CardHover }):Play()
+	end)
+	card.MouseLeave:Connect(function()
+		TweenService:Create(card, TweenInfo.new(0.12), { BackgroundColor3 = THEME.Card }):Play()
+	end)
+
+	return card, box
+end
+
+--=============================================================
 -- 页面容器
 --=============================================================
 local mainGrid -- 主功能的网格布局（随窗口宽度重排）
@@ -794,40 +943,63 @@ end
 local pageMain, listMain = makePage("Main", "grid")
 local pageSettings, listSettings = makePage("Settings", "list")
 
--- 主功能：四个功能卡片
-for i = 1, 4 do
-	local index = i
-	local isToggle = (i == 4)
-	local control
+-- 主功能：自定义速度 / 跳跃高度 / 飞行 / 点击 TP
+makeNumberCard(listMain, {
+	order = 1,
+	title = "自定义速度",
+	value = CONFIG.DefaultSpeed,
+	min = 1,
+	max = 1000,
+	apply = function(v)
+		local hum = getHumanoid()
+		if not hum then
+			log("未找到角色（Humanoid），无法修改速度", "warn")
+			return
+		end
+		hum.WalkSpeed = v
+		log(string.format("行走速度已设为 %s", fmtNum(v)), "success")
+	end,
+})
 
-	if isToggle then
-		control = {
-			kind = "toggle",
-			value = false,
-			onChange = function(state)
-				log(string.format("「功能占位 %d」自动执行已%s", index, state and "开启" or "关闭"), "info")
-			end,
-		}
-	else
-		control = {
-			kind = "pill",
-			text = "运行",
-			onClick = function()
-				log(string.format("「功能占位 %d」尚未绑定功能", index), "warn")
-			end,
-		}
-	end
+makeNumberCard(listMain, {
+	order = 2,
+	title = "跳跃高度",
+	value = CONFIG.DefaultJump,
+	min = 1,
+	max = 1000,
+	apply = function(v)
+		local hum = getHumanoid()
+		if not hum then
+			log("未找到角色（Humanoid），无法修改跳跃", "warn")
+			return
+		end
+		hum.UseJumpPower = true
+		hum.JumpPower = v
+		log(string.format("跳跃力度（JumpPower）已设为 %s", fmtNum(v)), "success")
+	end,
+})
 
-	makeCard(listMain, {
-		order = i,
-		title = string.format("功能占位 %d", i),
-		desc = isToggle and "开关式：开启执行，关闭停止" or "点击运行脚本",
-		control = control,
-		onClick = function()
-			log(string.format("「功能占位 %d」尚未绑定功能", index), "warn")
-		end,
-	})
-end
+makeCard(listMain, {
+	order = 3,
+	title = "飞行",
+	desc = "加载并执行远程脚本",
+	control = {
+		kind = "pill",
+		text = "运行",
+		onClick = function() runRemote("飞行", SCRIPT_URLS.fly) end,
+	},
+})
+
+makeCard(listMain, {
+	order = 4,
+	title = "点击 TP",
+	desc = "加载并执行远程脚本",
+	control = {
+		kind = "pill",
+		text = "运行",
+		onClick = function() runRemote("点击 TP", SCRIPT_URLS.tp) end,
+	},
+})
 
 -- 设置：重载 + 日志
 makeCard(listSettings, {
