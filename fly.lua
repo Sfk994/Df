@@ -1,13 +1,16 @@
 --[[
 	==============================================================
-	  飞行模块 (瞬移版) · Havvk  v2.0
+	  飞行模块 (瞬移版) · Havvk  v2.1
 	  视觉风格：深色面板 / 彩虹细描边 / mac 圆点窗口按钮
 	==============================================================
-	  功能（与原版一致，未做任何改动）：
+	  功能：
 	    · 飞行开关（BodyVelocity 悬浮移动，WASD 控制方向）
 	    · 穿墙开关（飞行中关闭角色碰撞）
-	    · 垂直瞬移（上升 / 下降 25 米）
-	    · 移动速度调节（10 ~ 200，步进 10）
+	    · 垂直瞬移：点一下上升 / 下降 25 米
+	    · 长按升降：按住按钮持续上升 / 下降，飞行中同样有效
+	    · 移动速度：10 ~ 200，步进 10，油门按钮在速度条上方左右平分
+	    · 速度平滑插值，起步不窜、松开不急停
+	    · PlatformStand 下 MoveDirection 为 0 时，自动改用键盘输入兜底
 
 	  交互：
 	    · 拖拽标题栏或底部小白条移动窗口
@@ -34,23 +37,29 @@ end
 -- 配置
 --=============================================================
 local CONFIG = {
-	Width = 300,
-	Height = 440,
-	MinWidth = 272,
+	Width = 264,
+	Height = 410,
+	MinWidth = 232,
 	MinHeight = 280,
-	HeaderHeight = 52,
-	BottomBarHeight = 16,
-	MinimizedWidth = 156,
-	MinimizedHeight = 30,
-	CardHeight = 66,
-	SpeedCardHeight = 76,
-	TeleportHeight = 44,
+	HeaderHeight = 48,
+	BottomBarHeight = 14,
+	MinimizedWidth = 148,
+	MinimizedHeight = 28,
+
+	PadX = 16,
+	PadY = 12,
+	Gap = 7,
+	SectionHeight = 13,
+	CardHeight = 50,
+	RowHeight = 32,
+	SpeedCardHeight = 82,
 
 	FlySpeed = 50,
 	MinSpeed = 10,
 	MaxSpeed = 200,
 	SpeedStep = 10,
 	TeleportDistance = 25,
+	HoldSpeed = 28,
 }
 
 local THEME = {
@@ -151,7 +160,7 @@ local window = new("Frame", {
 	Parent = gui,
 })
 corner(window, 12)
-local rainbowLine, rainbowGrad = rainbowStroke(window, 1.2)
+local _, rainbowGrad = rainbowStroke(window, 1.2)
 
 local uiScale = new("UIScale", { Scale = 1, Parent = window })
 
@@ -206,19 +215,19 @@ local function makeDot(color, offsetX, glyph)
 end
 
 -- 右对齐，视觉顺序（左→右）：最小化 · 放大 · 关闭
-local closeDot = makeDot(THEME.DotRed, 14, "×")
-local zoomDot = makeDot(THEME.DotGreen, 34, "+")
-local minDot = makeDot(THEME.DotYellow, 54, "−")
+local closeDot = makeDot(THEME.DotRed, 15, "×")
+local zoomDot = makeDot(THEME.DotGreen, 33, "+")
+local minDot = makeDot(THEME.DotYellow, 51, "−")
 
 local logo = new("Frame", {
-	Size = UDim2.fromOffset(24, 24),
-	Position = UDim2.fromOffset(14, 14),
+	Size = UDim2.fromOffset(22, 22),
+	Position = UDim2.fromOffset(16, 13),
 	BackgroundColor3 = THEME.Accent,
 	BorderSizePixel = 0,
 	Active = true,
 	Parent = header,
 })
-corner(logo, 12)
+corner(logo, 11)
 new("UIGradient", {
 	Color = ColorSequence.new({
 		ColorSequenceKeypoint.new(0, Color3.fromRGB(120, 158, 255)),
@@ -232,18 +241,18 @@ new("TextLabel", {
 	BackgroundTransparency = 1,
 	Font = Enum.Font.GothamBold,
 	Text = "F",
-	TextSize = 12,
+	TextSize = 11,
 	TextColor3 = Color3.new(1, 1, 1),
 	Parent = logo,
 })
 
 local titleLabel = new("TextLabel", {
-	Size = UDim2.new(0, 134, 0, 17),
-	Position = UDim2.fromOffset(46, 10),
+	Size = UDim2.new(0, 110, 0, 16),
+	Position = UDim2.fromOffset(46, 9),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.GothamBold,
 	Text = "飞行模块",
-	TextSize = 14,
+	TextSize = 13,
 	TextColor3 = THEME.Text,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	TextTruncate = Enum.TextTruncate.AtEnd,
@@ -252,8 +261,8 @@ local titleLabel = new("TextLabel", {
 })
 
 local subtitleLabel = new("TextLabel", {
-	Size = UDim2.new(0, 134, 0, 13),
-	Position = UDim2.fromOffset(46, 28),
+	Size = UDim2.new(0, 110, 0, 12),
+	Position = UDim2.fromOffset(46, 25),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.Gotham,
 	Text = "待机 · 速度 50",
@@ -270,7 +279,7 @@ local subtitleLabel = new("TextLabel", {
 --=============================================================
 local minimizedDot = new("Frame", {
 	Size = UDim2.fromOffset(6, 6),
-	Position = UDim2.fromOffset(14, 12),
+	Position = UDim2.fromOffset(16, 11),
 	BackgroundColor3 = Color3.fromRGB(112, 121, 138),
 	BorderSizePixel = 0,
 	Visible = false,
@@ -279,7 +288,7 @@ local minimizedDot = new("Frame", {
 corner(minimizedDot, 3)
 
 local minimizedLabel = new("TextLabel", {
-	Size = UDim2.new(1, -96, 1, 0),
+	Size = UDim2.new(1, -84, 1, 0),
 	Position = UDim2.fromOffset(28, 0),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.GothamMedium,
@@ -313,14 +322,14 @@ local scroll = new("ScrollingFrame", {
 	ScrollingDirection = Enum.ScrollingDirection.Y,
 	ScrollBarThickness = 2,
 	ScrollBarImageColor3 = Color3.fromRGB(70, 78, 92),
-	VerticalScrollBarInset = Enum.ScrollBarInset.ScrollBar,
+	VerticalScrollBarInset = Enum.ScrollBarInset.None,
 	Parent = body,
 })
 new("UIPadding", {
-	PaddingTop = UDim.new(0, 12),
-	PaddingBottom = UDim.new(0, 12),
-	PaddingLeft = UDim.new(0, 12),
-	PaddingRight = UDim.new(0, 12),
+	PaddingTop = UDim.new(0, CONFIG.PadY),
+	PaddingBottom = UDim.new(0, CONFIG.PadY),
+	PaddingLeft = UDim.new(0, CONFIG.PadX),
+	PaddingRight = UDim.new(0, CONFIG.PadX),
 	Parent = scroll,
 })
 
@@ -331,7 +340,7 @@ local list = new("Frame", {
 	Parent = scroll,
 })
 new("UIListLayout", {
-	Padding = UDim.new(0, 10),
+	Padding = UDim.new(0, CONFIG.Gap),
 	SortOrder = Enum.SortOrder.LayoutOrder,
 	Parent = list,
 })
@@ -342,18 +351,39 @@ local function nextOrder()
 	return order
 end
 
-local function makeSection(text)
-	return new("TextLabel", {
-		Size = UDim2.new(1, 0, 0, 14),
+local function makeSection(text, hint)
+	local row = new("Frame", {
+		Size = UDim2.new(1, 0, 0, CONFIG.SectionHeight),
+		BackgroundTransparency = 1,
+		LayoutOrder = nextOrder(),
+		Parent = list,
+	})
+	new("TextLabel", {
+		Size = UDim2.new(1, 0, 1, 0),
 		BackgroundTransparency = 1,
 		Font = Enum.Font.GothamBold,
 		Text = text,
 		TextSize = 10,
 		TextColor3 = THEME.SubText,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		LayoutOrder = nextOrder(),
-		Parent = list,
+		Parent = row,
 	})
+	if hint then
+		new("TextLabel", {
+			Size = UDim2.new(0, 120, 1, 0),
+			AnchorPoint = Vector2.new(1, 0),
+			Position = UDim2.new(1, 0, 0, 0),
+			BackgroundTransparency = 1,
+			Font = Enum.Font.Gotham,
+			Text = hint,
+			TextSize = 10,
+			TextColor3 = Color3.fromRGB(108, 117, 133),
+			TextXAlignment = Enum.TextXAlignment.Right,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Parent = row,
+		})
+	end
+	return row
 end
 
 --=============================================================
@@ -432,33 +462,30 @@ local function makeCard(opts)
 	corner(card, 10)
 	stroke(card, Color3.fromRGB(42, 47, 58), 1)
 
-	local reserved = opts.reserved or 78
 	new("TextLabel", {
-		Size = UDim2.new(1, -reserved, 0, 16),
-		Position = UDim2.fromOffset(14, 13),
+		Size = UDim2.new(1, -84, 0, 15),
+		Position = UDim2.fromOffset(13, 11),
 		BackgroundTransparency = 1,
 		Font = Enum.Font.GothamBold,
 		Text = opts.title,
-		TextSize = 13,
+		TextSize = 12,
 		TextColor3 = THEME.Text,
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextTruncate = Enum.TextTruncate.AtEnd,
 		Parent = card,
 	})
-	local descLabel = new("TextLabel", {
-		Size = UDim2.new(1, -reserved, 0, 30),
-		Position = UDim2.fromOffset(14, 33),
+	new("TextLabel", {
+		Size = UDim2.new(1, -84, 0, 13),
+		Position = UDim2.fromOffset(13, 27),
 		BackgroundTransparency = 1,
 		Font = Enum.Font.Gotham,
 		Text = opts.desc or "",
-		TextSize = 11,
+		TextSize = 10,
 		TextColor3 = THEME.SubText,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		TextYAlignment = Enum.TextYAlignment.Top,
-		TextWrapped = true,
+		TextTruncate = Enum.TextTruncate.AtEnd,
 		Parent = card,
 	})
-	descLabel.Visible = (opts.desc ~= nil)
 
 	card.MouseEnter:Connect(function()
 		TweenService:Create(card, TweenInfo.new(0.12), { BackgroundColor3 = THEME.CardHover }):Play()
@@ -467,10 +494,9 @@ local function makeCard(opts)
 		TweenService:Create(card, TweenInfo.new(0.12), { BackgroundColor3 = THEME.Card }):Play()
 	end)
 
-	local control = opts.control
 	local toggleInstance
-	if control and control.kind == "toggle" then
-		toggleInstance = makeToggle(card, control.value or false, control.onChange)
+	if opts.control and opts.control.kind == "toggle" then
+		toggleInstance = makeToggle(card, opts.control.value or false, opts.control.onChange)
 	end
 
 	return card, toggleInstance
@@ -482,20 +508,23 @@ end
 local flying, noclipOn = false, false
 local flySpeed = CONFIG.FlySpeed
 local bv, renderConn
-
-local updateStatus
-local startFly, stopFly, setNoclipState
-local flyToggle, noclipToggle
+local curVel = Vector3.zero
+local holdDir = 0
+local holdConn
+local holdButtons = {}
 local speedValueLabel, speedFill
+local flyToggle, noclipToggle
+local updateStatus
+local startFly, stopFly, setNoclipState, stopHold, startHold
 
 --=============================================================
 -- 飞行控制区
 --=============================================================
 makeSection("飞行控制")
 
-local flyCard, flyToggleInstance = makeCard({
+local _, flyToggleInstance = makeCard({
 	title = "飞行",
-	desc = "悬浮移动，WASD 控制方向",
+	desc = "WASD 水平移动 · 长按升降",
 	control = {
 		kind = "toggle",
 		value = false,
@@ -518,9 +547,9 @@ local flyCard, flyToggleInstance = makeCard({
 })
 flyToggle = flyToggleInstance
 
-local noclipCard, noclipToggleInstance = makeCard({
+local _, noclipToggleInstance = makeCard({
 	title = "穿墙",
-	desc = "关闭角色碰撞 · 飞行中生效",
+	desc = "关闭碰撞 · 飞行中生效",
 	control = {
 		kind = "toggle",
 		value = false,
@@ -538,108 +567,161 @@ local noclipCard, noclipToggleInstance = makeCard({
 noclipToggle = noclipToggleInstance
 
 --=============================================================
--- 垂直瞬移
+-- 垂直移动：上排点按瞬移，下排长按持续升降
 --=============================================================
-makeSection("垂直瞬移")
+makeSection("垂直移动", "瞬移 25m · 长按持续")
 
-local teleportRow = new("Frame", {
-	Size = UDim2.new(1, 0, 0, CONFIG.TeleportHeight),
-	BackgroundTransparency = 1,
-	LayoutOrder = nextOrder(),
-	Parent = list,
-})
+local function makeRow()
+	return new("Frame", {
+		Size = UDim2.new(1, 0, 0, CONFIG.RowHeight),
+		BackgroundTransparency = 1,
+		LayoutOrder = nextOrder(),
+		Parent = list,
+	})
+end
 
-local function makeActionButton(parent, opts)
+local function makeMoveButton(parent, opts)
 	local btn = new("TextButton", {
-		Size = opts.size,
-		Position = opts.position,
+		Size = UDim2.new(0.5, -4, 1, 0),
+		Position = opts.right and UDim2.new(0.5, 4, 0, 0) or UDim2.fromOffset(0, 0),
 		BackgroundColor3 = THEME.Card,
 		BorderSizePixel = 0,
 		AutoButtonColor = false,
 		Text = "",
 		Parent = parent,
 	})
-	corner(btn, 10)
-	stroke(btn, Color3.fromRGB(42, 47, 58), 1)
+	corner(btn, 9)
+	local btnStroke = stroke(btn, Color3.fromRGB(42, 47, 58), 1)
 
 	new("TextLabel", {
-		Size = UDim2.fromOffset(18, 18),
-		Position = UDim2.fromOffset(10, 13),
+		Size = UDim2.fromOffset(16, 16),
+		Position = UDim2.fromOffset(11, 8),
 		BackgroundTransparency = 1,
 		Font = Enum.Font.GothamBold,
 		Text = opts.glyph,
-		TextSize = 15,
-		TextColor3 = THEME.Accent,
+		TextSize = 13,
+		TextColor3 = opts.accent or THEME.Accent,
 		Parent = btn,
 	})
 	new("TextLabel", {
-		Size = UDim2.new(1, -72, 1, 0),
-		Position = UDim2.fromOffset(30, 0),
+		Size = UDim2.new(1, -42, 1, 0),
+		Position = UDim2.fromOffset(29, 0),
 		BackgroundTransparency = 1,
 		Font = Enum.Font.GothamBold,
 		Text = opts.title,
-		TextSize = 12,
+		TextSize = 11,
 		TextColor3 = THEME.Text,
 		TextXAlignment = Enum.TextXAlignment.Left,
-		Parent = btn,
-	})
-	new("TextLabel", {
-		Size = UDim2.new(0, 40, 1, 0),
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -10, 0, 0),
-		BackgroundTransparency = 1,
-		Font = Enum.Font.Gotham,
-		Text = opts.hint,
-		TextSize = 10,
-		TextColor3 = THEME.SubText,
-		TextXAlignment = Enum.TextXAlignment.Right,
+		TextTruncate = Enum.TextTruncate.AtEnd,
 		Parent = btn,
 	})
 
 	btn.MouseEnter:Connect(function()
-		TweenService:Create(btn, TweenInfo.new(0.12), { BackgroundColor3 = THEME.CardHover }):Play()
+		if not (opts.isHeld and opts.isHeld()) then
+			TweenService:Create(btn, TweenInfo.new(0.12), { BackgroundColor3 = THEME.CardHover }):Play()
+		end
 	end)
 	btn.MouseLeave:Connect(function()
-		TweenService:Create(btn, TweenInfo.new(0.12), { BackgroundColor3 = THEME.Card }):Play()
+		if not (opts.isHeld and opts.isHeld()) then
+			TweenService:Create(btn, TweenInfo.new(0.12), { BackgroundColor3 = THEME.Card }):Play()
+		end
 	end)
-	btn.MouseButton1Click:Connect(function()
-		if opts.onClick then opts.onClick() end
+
+	if opts.onClick then
+		btn.MouseButton1Click:Connect(function()
+			opts.onClick()
+			-- 点按反馈
+			TweenService:Create(btn, TweenInfo.new(0.08), { BackgroundColor3 = Color3.fromRGB(58, 66, 86) }):Play()
+			task.delay(0.1, function()
+				TweenService:Create(btn, TweenInfo.new(0.18), { BackgroundColor3 = THEME.Card }):Play()
+			end)
+		end)
+	end
+
+	return btn, btnStroke
+end
+
+local function teleportVertical(offset)
+	local char = player.Character
+	if char and char:FindFirstChild("HumanoidRootPart") then
+		char.HumanoidRootPart.CFrame = char.HumanoidRootPart.CFrame
+			+ Vector3.new(0, offset, 0)
+	end
+end
+
+local teleportRow = makeRow()
+makeMoveButton(teleportRow, {
+	glyph = "↑",
+	title = "瞬移上升",
+	onClick = function()
+		teleportVertical(CONFIG.TeleportDistance)
+	end,
+})
+makeMoveButton(teleportRow, {
+	glyph = "↓",
+	title = "瞬移下降",
+	right = true,
+	onClick = function()
+		teleportVertical(-CONFIG.TeleportDistance)
+	end,
+})
+
+local holdRow = makeRow()
+
+local function makeHoldButton(parent, dir, glyph, title)
+	local btn, btnStroke
+
+	local function setPressed(pressed)
+		TweenService:Create(btn, TweenInfo.new(0.1), {
+			BackgroundColor3 = pressed and Color3.fromRGB(36, 72, 58) or THEME.Card,
+		}):Play()
+		TweenService:Create(btnStroke, TweenInfo.new(0.1), {
+			Color = pressed and THEME.Green or Color3.fromRGB(42, 47, 58),
+		}):Play()
+	end
+
+	btn, btnStroke = makeMoveButton(parent, {
+		glyph = glyph,
+		title = title,
+		accent = THEME.Green,
+		right = dir < 0,
+		isHeld = function()
+			local item = holdButtons[dir]
+			return item ~= nil and item.btn == btn
+		end,
+	})
+
+	btn.InputBegan:Connect(function(input)
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1
+			and input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+		holdButtons[dir] = { btn = btn, reset = setPressed }
+		setPressed(true)
+		startHold(dir)
 	end)
+
+	btn.InputEnded:Connect(function(input)
+		if input.UserInputType ~= Enum.UserInputType.MouseButton1
+			and input.UserInputType ~= Enum.UserInputType.Touch then
+			return
+		end
+		local item = holdButtons[dir]
+		if item and item.btn == btn then
+			holdButtons[dir] = nil
+			setPressed(false)
+			stopHold()
+		end
+	end)
+
 	return btn
 end
 
-makeActionButton(teleportRow, {
-	size = UDim2.new(0.5, -5, 1, 0),
-	position = UDim2.fromOffset(0, 0),
-	glyph = "↑",
-	title = "上升",
-	hint = "25m",
-	onClick = function()
-		local char = player.Character
-		if char and char:FindFirstChild("HumanoidRootPart") then
-			char.HumanoidRootPart.CFrame = char.HumanoidRootPart.CFrame
-				+ Vector3.new(0, CONFIG.TeleportDistance, 0)
-		end
-	end,
-})
-
-makeActionButton(teleportRow, {
-	size = UDim2.new(0.5, -5, 1, 0),
-	position = UDim2.new(0.5, 5, 0, 0),
-	glyph = "↓",
-	title = "下降",
-	hint = "25m",
-	onClick = function()
-		local char = player.Character
-		if char and char:FindFirstChild("HumanoidRootPart") then
-			char.HumanoidRootPart.CFrame = char.HumanoidRootPart.CFrame
-				- Vector3.new(0, CONFIG.TeleportDistance, 0)
-		end
-	end,
-})
+makeHoldButton(holdRow, 1, "↑", "长按上升")
+makeHoldButton(holdRow, -1, "↓", "长按下降")
 
 --=============================================================
--- 速度
+-- 速度：油门按钮在速度条上方，左右各占一半
 --=============================================================
 local speedCard = new("Frame", {
 	Size = UDim2.new(1, 0, 0, CONFIG.SpeedCardHeight),
@@ -652,34 +734,21 @@ corner(speedCard, 10)
 stroke(speedCard, Color3.fromRGB(42, 47, 58), 1)
 
 new("TextLabel", {
-	Size = UDim2.new(1, -70, 0, 16),
-	Position = UDim2.fromOffset(14, 10),
+	Size = UDim2.new(1, -96, 0, 15),
+	Position = UDim2.fromOffset(13, 10),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.GothamBold,
 	Text = "移动速度",
-	TextSize = 13,
+	TextSize = 12,
 	TextColor3 = THEME.Text,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	Parent = speedCard,
 })
 
-new("TextLabel", {
-	Size = UDim2.new(1, -70, 0, 12),
-	Position = UDim2.fromOffset(14, 28),
-	BackgroundTransparency = 1,
-	Font = Enum.Font.Gotham,
-	Text = "范围 10 – 200，步进 10",
-	TextSize = 10,
-	TextColor3 = THEME.SubText,
-	TextXAlignment = Enum.TextXAlignment.Left,
-	TextTruncate = Enum.TextTruncate.AtEnd,
-	Parent = speedCard,
-})
-
 speedValueLabel = new("TextLabel", {
-	Size = UDim2.new(0, 56, 0, 16),
+	Size = UDim2.new(0, 58, 0, 15),
 	AnchorPoint = Vector2.new(1, 0),
-	Position = UDim2.new(1, -14, 0, 10),
+	Position = UDim2.new(1, -13, 0, 9),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.GothamBold,
 	Text = tostring(CONFIG.FlySpeed),
@@ -689,17 +758,16 @@ speedValueLabel = new("TextLabel", {
 	Parent = speedCard,
 })
 
-local function makeStepButton(text, anchorRight)
+local function makeStepButton(text, isRight)
 	local btn = new("TextButton", {
-		Size = UDim2.fromOffset(26, 26),
-		AnchorPoint = Vector2.new(anchorRight and 1 or 0, 0),
-		Position = anchorRight and UDim2.new(1, -14, 0, 40) or UDim2.fromOffset(14, 40),
+		Size = UDim2.new(0.5, -21, 0, 34),
+		Position = isRight and UDim2.new(0.5, 7, 0, 30) or UDim2.fromOffset(14, 30),
 		BackgroundColor3 = Color3.fromRGB(44, 49, 61),
 		BorderSizePixel = 0,
 		AutoButtonColor = false,
 		Font = Enum.Font.GothamBold,
 		Text = text,
-		TextSize = 15,
+		TextSize = 12,
 		TextColor3 = THEME.Text,
 		Parent = speedCard,
 	})
@@ -713,12 +781,12 @@ local function makeStepButton(text, anchorRight)
 	return btn
 end
 
-local minusBtn = makeStepButton("−", false)
-local plusBtn = makeStepButton("+", true)
+local minusBtn = makeStepButton("−  减速", false)
+local plusBtn = makeStepButton("+  加速", true)
 
 local barTrack = new("Frame", {
-	Position = UDim2.new(0, 48, 0, 53),
-	Size = UDim2.new(1, -96, 0, 6),
+	Position = UDim2.fromOffset(14, 70),
+	Size = UDim2.new(1, -28, 0, 6),
 	BackgroundColor3 = Color3.fromRGB(44, 49, 61),
 	BorderSizePixel = 0,
 	Parent = speedCard,
@@ -742,7 +810,40 @@ new("UIGradient", {
 })
 
 --=============================================================
--- 逻辑：穿墙 / 飞行
+-- 逻辑：移动方向（PlatformStand 下 MoveDirection 可能为 0，用键盘兜底）
+--=============================================================
+local function readMoveVector()
+	local char = player.Character
+	local humanoid = char and char:FindFirstChild("Humanoid")
+	local dir = humanoid and humanoid.MoveDirection or nil
+	if dir and dir.Magnitude > 0.05 then
+		return Vector3.new(dir.X, 0, dir.Z)
+	end
+
+	local f, r = 0, 0
+	if UserInputService:IsKeyDown(Enum.KeyCode.W) then f = f + 1 end
+	if UserInputService:IsKeyDown(Enum.KeyCode.S) then f = f - 1 end
+	if UserInputService:IsKeyDown(Enum.KeyCode.D) then r = r + 1 end
+	if UserInputService:IsKeyDown(Enum.KeyCode.A) then r = r - 1 end
+	if f == 0 and r == 0 then return Vector3.zero end
+
+	local cam = workspace.CurrentCamera
+	if not cam then return Vector3.zero end
+	local look = cam.CFrame.LookVector
+	local flatLook = Vector3.new(look.X, 0, look.Z)
+	if flatLook.Magnitude < 0.01 then
+		flatLook = Vector3.new(0, 0, -1)
+	else
+		flatLook = flatLook.Unit
+	end
+	local flatRight = Vector3.new(-flatLook.Z, 0, flatLook.X)
+	local move = flatLook * f + flatRight * r
+	if move.Magnitude < 0.01 then return Vector3.zero end
+	return move.Unit
+end
+
+--=============================================================
+-- 逻辑：穿墙 / 飞行 / 长按升降
 --=============================================================
 function setNoclipState(state)
 	local char = player.Character
@@ -759,8 +860,35 @@ function setNoclipState(state)
 	end
 end
 
+function stopHold()
+	holdDir = 0
+	if holdConn then
+		holdConn:Disconnect()
+		holdConn = nil
+	end
+	for dir, item in pairs(holdButtons) do
+		if item.reset then item.reset(false) end
+		holdButtons[dir] = nil
+	end
+end
+
+function startHold(dir)
+	holdDir = dir
+	if holdConn then return end
+	-- 飞行中由飞行循环把速度写进 BodyVelocity，这里只处理非飞行状态的位移
+	holdConn = RunService.Heartbeat:Connect(function(dt)
+		if holdDir == 0 or flying then return end
+		local char = player.Character
+		if not char then return end
+		local hrp = char:FindFirstChild("HumanoidRootPart")
+		if not hrp then return end
+		hrp.CFrame = hrp.CFrame + Vector3.new(0, holdDir * CONFIG.HoldSpeed * dt, 0)
+	end)
+end
+
 function stopFly()
 	flying = false
+	curVel = Vector3.zero
 	if bv then
 		bv:Destroy()
 		bv = nil
@@ -779,6 +907,7 @@ function startFly()
 	end
 
 	flying = true
+	curVel = Vector3.zero
 	local hrp = char.HumanoidRootPart
 
 	-- 开启穿墙和悬浮
@@ -789,8 +918,8 @@ function startFly()
 	bv.Velocity = Vector3.zero
 	bv.Parent = hrp
 
-	-- 使用 Heartbeat 处理稳定移动
-	renderConn = RunService.Heartbeat:Connect(function()
+	-- 使用 Heartbeat 处理稳定移动：水平跟人走，垂直由长按按钮控制
+	renderConn = RunService.Heartbeat:Connect(function(dt)
 		if not flying or not bv then return end
 		local c = player.Character
 		if not c or not c:FindFirstChild("Humanoid") then return end
@@ -804,13 +933,17 @@ function startFly()
 			end
 		end
 
-		local dir = c.Humanoid.MoveDirection
-		local flatDir = Vector3.new(dir.X, 0, dir.Z)
-		local horizontalVel = Vector3.zero
+		local flatDir = readMoveVector()
+		local target = Vector3.zero
 		if flatDir.Magnitude > 0.05 then
-			horizontalVel = flatDir.Unit * flySpeed
+			target = flatDir.Unit * flySpeed
 		end
-		bv.Velocity = horizontalVel
+		target = target + Vector3.new(0, holdDir * CONFIG.HoldSpeed, 0)
+
+		-- 速度插值：起步不窜、松开不急停
+		local alpha = 1 - math.exp(-math.max(dt, 0) * 12)
+		curVel = curVel:Lerp(target, alpha)
+		bv.Velocity = curVel
 	end)
 
 	return true
@@ -851,6 +984,7 @@ player.CharacterAdded:Connect(function()
 	if flying then
 		stopFly()
 	end
+	stopHold()
 	noclipOn = false
 	if flyToggle then flyToggle.set(false, true) end
 	if noclipToggle then noclipToggle.set(false, true) end
@@ -871,7 +1005,7 @@ local bottomBar = new("Frame", {
 
 local dragHandle = new("TextButton", {
 	Name = "DragHandle",
-	Size = UDim2.fromOffset(96, CONFIG.BottomBarHeight),
+	Size = UDim2.fromOffset(88, CONFIG.BottomBarHeight),
 	AnchorPoint = Vector2.new(0.5, 1),
 	Position = UDim2.new(0.5, 0, 1, 0),
 	BackgroundTransparency = 1,
@@ -883,7 +1017,7 @@ local dragHandle = new("TextButton", {
 })
 
 local dragPill = new("Frame", {
-	Size = UDim2.fromOffset(40, 4),
+	Size = UDim2.fromOffset(38, 4),
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.new(0.5, 0, 0.5, 0),
 	BackgroundColor3 = Color3.new(1, 1, 1),
@@ -904,7 +1038,7 @@ end)
 -- 尺寸 / 适配
 --=============================================================
 local pos = Vector2.new(0, 0)
-local winW, winH, winScale = CONFIG.Width, CONFIG.Height, 1
+local winW, winH = CONFIG.Width, CONFIG.Height
 local minimized = false
 local zoomed = false
 local restoreW, restoreH = CONFIG.Width, CONFIG.Height
@@ -948,7 +1082,6 @@ local function updateScale()
 		(vp.X - 24) / CONFIG.Width
 	))
 
-	winScale = base
 	uiScale.Scale = math.clamp(base * (zoomed and 1.22 or 1), 0.6, maxAllowed)
 end
 
@@ -995,7 +1128,7 @@ local function bindDrag(object)
 end
 
 -- 右下角缩放手柄：热区是透明的正方形按钮，视觉是旋转 45° 被裁出来的三角形
-local GRIP_HIT = 26
+local GRIP_HIT = 24
 local grip = new("TextButton", {
 	Name = "Grip",
 	Size = UDim2.fromOffset(GRIP_HIT, GRIP_HIT),
@@ -1010,7 +1143,7 @@ local grip = new("TextButton", {
 
 local gripVisual = new("Frame", {
 	Name = "GripVisual",
-	Size = UDim2.fromOffset(30, 30),
+	Size = UDim2.fromOffset(28, 28),
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.new(1, 0, 1, 0),
 	Rotation = 45,
@@ -1055,7 +1188,7 @@ UserInputService.InputChanged:Connect(function(input)
 		local vp = viewportSize()
 		local scale = math.max(uiScale.Scale, 0.01)
 		local delta = (inputXY(input) - resizeState.startInput) / scale
-		local maxW = math.max(240, (vp.X - 12) / scale)
+		local maxW = math.max(220, (vp.X - 12) / scale)
 		local maxH = math.max(200, (vp.Y - 12) / scale)
 
 		winW = math.clamp(resizeState.w + delta.X, math.min(CONFIG.MinWidth, maxW), maxW)
@@ -1074,6 +1207,10 @@ UserInputService.InputEnded:Connect(function(input)
 		or input.UserInputType == Enum.UserInputType.Touch then
 		dragState = nil
 		resizeState = nil
+		-- 松手即停止长按升降（在按钮外松开同样生效）
+		if holdDir ~= 0 then
+			stopHold()
+		end
 	end
 end)
 
@@ -1119,6 +1256,7 @@ end
 
 closeDot.MouseButton1Click:Connect(function()
 	stopFly()
+	stopHold()
 	gui:Destroy()
 end)
 
