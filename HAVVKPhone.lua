@@ -1,6 +1,6 @@
 --[[
 	==============================================================
-	  HAVVK Phone · 调试面板 v2.8（iPhone 锁屏风格）
+	  HAVVK Phone · 调试面板 v2.9（iPhone 锁屏风格）
 	==============================================================
 	  用法：
 	    1. StarterGui 里新建一个 LocalScript
@@ -21,7 +21,8 @@
 	    · 右上角小圆点 × 关闭，右下角按钮或 F2 重新唤出
 	    · 底部上滑返回桌面：解锁后底部有小白色条，从那儿往上拖，页面跟手上升并淡出，
       松手超过 52px 就回主屏，不够则弹回原处
-    · 玩家列表：头像 / 昵称 / 账号时间 / 与你的距离；点行进入详情页看装扮截图、账号名、建号时间，可 TP 或穿对方装扮
+    · 玩家列表：头像 / 昵称 / 账号时间 / 与你的距离；点行进入详情页看装扮截图、账号名、
+      建号时间、用户 ID、个人简介，可 TP 或一键复制对方全身装扮（偷衣服）
     · 面板按屏幕高度自动等比缩放，PC / 手机都适用
 
 	  功能分布：
@@ -1466,7 +1467,7 @@ new("TextLabel", {
 	Position = UDim2.fromOffset(0, 404),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.GothamMedium,
-	Text = "PHONE   ·   v2.8",
+	Text = "PHONE   ·   v2.9",
 	TextSize = 9,
 	TextColor3 = COLORS.White,
 	TextTransparency = 0.78,
@@ -2011,7 +2012,7 @@ new("TextLabel", {
 	Position = UDim2.fromOffset(18, 404),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.Gotham,
-	Text = "HAVVK Phone · v2.8",
+	Text = "HAVVK Phone · v2.9",
 	TextSize = 9,
 	TextColor3 = COLORS.SubText,
 	TextTransparency = 0.25,
@@ -2203,7 +2204,7 @@ new("TextLabel", {
 	Position = UDim2.fromOffset(72, 42),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.Gotham,
-	Text = "调试面板 v2.8 · 构建 218",
+	Text = "调试面板 v2.9 · 构建 219",
 	TextSize = 9,
 	TextColor3 = COLORS.SubText,
 	TextXAlignment = Enum.TextXAlignment.Left,
@@ -2342,7 +2343,7 @@ aboutSection(4, "运行", {
 })
 
 local panelRows = {
-	{ "面板版本", "v2.8（构建 218）" },
+	{ "面板版本", "v2.9（构建 219）" },
 	{ "面板尺寸", string.format("%d × %d", CONFIG.Width, CONFIG.Height) },
 	{ "当前壁纸", WALLPAPERS[wallpaperIndex].name, "wallpaper" },
 	{ "日志条数", tostring(#logLines), "logs" },
@@ -2573,15 +2574,15 @@ do
 	end
 
 	--=============================================================
-	-- 玩家详情页：点列表行进入，看用户名 / 账号名 / 账号年龄 / 建号时间 / 装扮截图，
-	-- 支持一键传送 + 穿对方的装扮
+	-- 玩家详情页：点列表行进入，看用户名 / 账号名 / 账号年龄 / 建号时间 /
+	-- 用户 ID / 距你距离 / 个人简介 / 装扮截图，支持一键传送 + 穿对方的装扮
 	--=============================================================
 	local detailPage = makePage("PlayerDetail", "玩家详情")
 	pages.detail = detailPage
 
 	local avatarShot = new("ImageLabel", {
-		Size = UDim2.fromOffset(200, 200),
-		Position = UDim2.fromOffset(50, 78),
+		Size = UDim2.fromOffset(156, 156),
+		Position = UDim2.fromOffset(72, 72),
 		BackgroundColor3 = Color3.fromRGB(28, 31, 42),
 		BackgroundTransparency = 0,
 		BorderSizePixel = 0,
@@ -2594,7 +2595,7 @@ do
 
 	local detailName = new("TextLabel", {
 		Size = UDim2.new(1, -40, 0, 22),
-		Position = UDim2.fromOffset(20, 292),
+		Position = UDim2.fromOffset(20, 240),
 		BackgroundTransparency = 1,
 		Font = Enum.Font.GothamBold,
 		Text = "",
@@ -2605,7 +2606,7 @@ do
 
 	local detailDisplay = new("TextLabel", {
 		Size = UDim2.new(1, -40, 0, 16),
-		Position = UDim2.fromOffset(20, 316),
+		Position = UDim2.fromOffset(20, 264),
 		BackgroundTransparency = 1,
 		Font = Enum.Font.Gotham,
 		Text = "",
@@ -2615,8 +2616,8 @@ do
 	})
 
 	local infoCard = new("Frame", {
-		Size = UDim2.new(1, -36, 0, 92),
-		Position = UDim2.fromOffset(18, 344),
+		Size = UDim2.new(1, -36, 0, 118),
+		Position = UDim2.fromOffset(18, 294),
 		BackgroundColor3 = COLORS.White,
 		BackgroundTransparency = 0.92,
 		BorderSizePixel = 0,
@@ -2655,28 +2656,141 @@ do
 	local ageValue = infoRow(12, "账号存在")
 	local joinValue = infoRow(38, "建号时间")
 	local uidValue = infoRow(64, "用户 ID")
+	local distValue = infoRow(90, "距你")
+
+	local bioCard = new("Frame", {
+		Size = UDim2.new(1, -36, 0, 96),
+		Position = UDim2.fromOffset(18, 424),
+		BackgroundColor3 = COLORS.White,
+		BackgroundTransparency = 0.92,
+		BorderSizePixel = 0,
+		Parent = detailPage,
+	})
+	corner(bioCard, 14)
+	stroke(bioCard, COLORS.White, 0.9, 1)
+
+	new("TextLabel", {
+		Size = UDim2.new(0, 96, 0, 14),
+		Position = UDim2.fromOffset(14, 10),
+		BackgroundTransparency = 1,
+		Font = Enum.Font.GothamBold,
+		Text = "个人简介",
+		TextSize = 10,
+		TextColor3 = COLORS.SubText,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		Parent = bioCard,
+	})
+
+	local bioValue = new("TextLabel", {
+		Size = UDim2.new(1, -28, 0, 58),
+		Position = UDim2.fromOffset(14, 30),
+		BackgroundTransparency = 1,
+		Font = Enum.Font.Gotham,
+		Text = "",
+		TextSize = 11,
+		TextColor3 = COLORS.Text,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Top,
+		TextWrapped = true,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Parent = bioCard,
+	})
 
 	local detailTarget = nil
 
-	local function wearOutfit(target)
-		local humanoid = player.Character and player.Character:FindFirstChildOfClass("Humanoid")
-		local ok, desc = pcall(function()
-			return Players:GetHumanoidDescriptionFromUserId(target.UserId)
+	-- 拉取 Roblox 用户资料里的个人简介（description 字段）
+	local function fetchBio(target)
+		local ok, result = pcall(function()
+			local http = game:GetService("HttpService")
+			if not http or not http.JSONDecode then
+				return nil
+			end
+			local json = game:HttpGet("https://users.roblox.com/v1/users/" .. tostring(target.UserId))
+			local data = http:JSONDecode(json)
+			return data and data.description or ""
 		end)
-		if humanoid and ok and desc then
-			pcall(function()
-				humanoid:ApplyDescription(desc)
-			end)
-			log("已穿上 " .. target.Name .. " 的装扮", "success")
-		else
-			log("穿装扮失败：装扮不可用", "warn")
+		if ok and result and result ~= "" then
+			return result
 		end
+		return nil
+	end
+
+	-- 判断一个实例是不是「身上穿戴的衣服 / 配饰」
+	local function isWearable(obj)
+		return obj:IsA("Shirt")
+			or obj:IsA("Pants")
+			or obj:IsA("Accessory")
+			or obj:IsA("ShirtGraphic")
+			or obj:IsA("BodyColors")
+	end
+
+	-- 参考「最近玩家偷衣服」脚本的换装链路：
+	--   1. 扒光自己身上的旧衣服和配饰
+	--   2. 从目标角色克隆衣服 / 配饰过来
+	--   3. R15 时直接应用目标的 HumanoidDescription（最稳）
+	local function wearOutfit(target)
+		if not target then return end
+
+		local myChar = player.Character
+		local targetChar = target.Character
+		if not myChar then
+			log("穿装扮失败：你的角色还没加载", "warn")
+			return
+		end
+		if not targetChar then
+			log("穿装扮失败：目标角色不在场景里", "warn")
+			return
+		end
+
+		-- 1. 清理自己身上的旧衣服和配饰
+		pcall(function()
+			for _, obj in ipairs(myChar:GetChildren()) do
+				if isWearable(obj) then
+					obj:Destroy()
+				end
+			end
+		end)
+
+		-- 2. 复制目标身上的衣服和配饰
+		pcall(function()
+			for _, obj in ipairs(targetChar:GetChildren()) do
+				if isWearable(obj) then
+					local cloned = obj:Clone()
+					cloned.Parent = myChar
+				end
+			end
+		end)
+
+		-- 3. R15：直接应用目标的完整 HumanoidDescription
+		pcall(function()
+			local myHumanoid = myChar:FindFirstChildOfClass("Humanoid")
+			local targetHumanoid = targetChar:FindFirstChildOfClass("Humanoid")
+			if myHumanoid and targetHumanoid
+				and myHumanoid.ApplyDescription
+				and targetHumanoid.GetAppliedDescription then
+				local desc = targetHumanoid:GetAppliedDescription()
+				if desc then
+					myHumanoid:ApplyDescription(desc)
+				end
+			end
+		end)
+
+		-- 4. 兜底：目标角色不在线时，用 UserId 拉取 HumanoidDescription
+		pcall(function()
+			local desc = Players:GetHumanoidDescriptionFromUserId(target.UserId)
+			local myHumanoid = myChar:FindFirstChildOfClass("Humanoid")
+			if myHumanoid and desc then
+				myHumanoid:ApplyDescription(desc)
+			end
+		end)
+
+		log("已穿上 " .. target.Name .. " 的装扮", "success")
 	end
 
 	local function detailBtn(x, text, color, onClick)
 		local btn = new("TextButton", {
 			Size = UDim2.fromOffset(128, 38),
-			Position = UDim2.fromOffset(x, 452),
+			Position = UDim2.fromOffset(x, 532),
 			BackgroundColor3 = color,
 			BackgroundTransparency = 0.14,
 			BorderSizePixel = 0,
@@ -2711,6 +2825,16 @@ do
 		ageValue.Text = fmtAge(target.AccountAge)
 		joinValue.Text = os.date("%Y-%m-%d", os.time() - (target.AccountAge or 0) * 86400)
 		uidValue.Text = tostring(target.UserId)
+		distValue.Text = (distanceTo(target) and fmtDist(distanceTo(target))) or "距离未知"
+		bioValue.Text = "加载中…"
+
+		-- 个人简介：异步拉取 Roblox 用户资料
+		task.spawn(function()
+			local bio = fetchBio(target)
+			if detailTarget == target then
+				bioValue.Text = bio or "这个人很神秘，还没有写简介。"
+			end
+		end)
 
 		avatarShot.Image = ""
 		task.spawn(function()
@@ -2728,6 +2852,17 @@ do
 
 		openPage(detailPage)
 	end
+
+	-- 详情页可见时，每秒刷新一次「距你」距离
+	task.spawn(function()
+		while true do
+			task.wait(1)
+			if detailPage.Visible and detailTarget then
+				local d = distanceTo(detailTarget)
+				distValue.Text = d and fmtDist(d) or "距离未知"
+			end
+		end
+	end)
 
 	local rows = {}
 	local rebuild -- 前向声明
