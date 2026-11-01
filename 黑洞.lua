@@ -491,12 +491,22 @@ toolTitle.TextColor3 = C.SUB
 toolTitle.TextXAlignment = Enum.TextXAlignment.Left
 toolTitle.Parent = panel
 
--- 工具箱按钮网格（3 列）
+-- 工具箱容器 + 按钮网格（3 列）
+-- 注意：UIGridLayout 会重排它的父容器下的所有 GuiObject，
+-- 所以必须给它一个独立的容器，不能直接挂在 panel 上，否则整个面板布局都会被吞掉。
+local toolContainer = Instance.new("Frame")
+toolContainer.Name = "ToolContainer"
+toolContainer.Size = UDim2.new(1, -32, 0, 136)
+toolContainer.Position = UDim2.fromOffset(16, 372)
+toolContainer.BackgroundTransparency = 1
+toolContainer.BorderSizePixel = 0
+toolContainer.Parent = panel
+
 local toolGrid = Instance.new("UIGridLayout")
 toolGrid.CellSize = UDim2.fromOffset(88, 40)
 toolGrid.CellPadding = UDim2.fromOffset(8, 8)
 toolGrid.SortOrder = Enum.SortOrder.LayoutOrder
-toolGrid.Parent = panel
+toolGrid.Parent = toolContainer
 
 local function makeToolButton(text, color, layoutOrder, onClick)
 	local btn = Instance.new("TextButton")
@@ -509,8 +519,7 @@ local function makeToolButton(text, color, layoutOrder, onClick)
 	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
 	btn.AutoButtonColor = false
 	btn.LayoutOrder = layoutOrder
-	btn.Parent = panel
-	btn.Position = UDim2.fromOffset(16, 372) -- 网格布局会接管位置，这里只给一个初始锚点
+	btn.Parent = toolContainer
 
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0, 9)
