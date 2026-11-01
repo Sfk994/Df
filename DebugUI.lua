@@ -1,7 +1,7 @@
 --[[
 	==============================================================
-	  DebugUI · Roblox 调试面板 v1.6
-	  （HAVVK科技：自定义速度 / 跳跃高度输入卡 + 飞行、点击 TP 远程脚本）
+	  DebugUI · Roblox 调试面板 v1.7
+	  （HAVVK科技：快捷应用图标 FLY / TP / CAR，点击即加载远程脚本）
 	==============================================================
 	  使用方法：
 	    1. 在 StarterGui 里新建一个 LocalScript
@@ -14,10 +14,10 @@
 	    · 右上角三个圆点（mac 风）：黄 = 最小化，绿 = 最大化 / 还原，红 = 关闭
 	    · 窗口边框是一圈缓慢旋转的细彩虹线
 	    · 最小化后收缩成一个小胶囊，只留时间 + 放大 + 关闭
-	    · 左侧「主功能 / 设置」切换右侧内容；主功能为 2×2 卡片，窗口变窄自动变 1×4
+	    · 左侧「主功能 / 设置」切换右侧内容
+	    · 主功能是正方形 APP 图标（字母缩写 + 应用名），窗口变窄自动 3 → 2 → 1 列换行
 	    · 标题栏空白处循环滚动字幕，窗口拉宽自动变长、拉太窄则隐藏
-	    · 主功能：速度 / 跳跃改成可输入数值（回车或点「应用」生效）
-	    · 飞行 / 点击 TP 点「运行」会 game:HttpGet 拉取远程脚本并执行
+	    · 点图标即用 game:HttpGet 拉取对应远程脚本并执行（飞行 / 点击 TP / 飞车）
 
 	  对外接口：
 	    _G.DebugUI:Log("消息", "info")       -- info / success / warn / error
@@ -41,7 +41,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 --=============================================================
 local CONFIG = {
 	Title = "HAVVK科技",
-	Subtitle = "管理员 · v1.6",
+	Subtitle = "管理员 · v1.7",
 	Width = 560,
 	Height = 400,
 	MinWidth = 300,
@@ -51,9 +51,10 @@ local CONFIG = {
 	MinimizedHeight = 30,
 	MinimizedWidth = 152,
 	CardHeight = 66,
+	AppIconSize = 60,     -- APP 图标（正方形）边长
+	AppCellWidth = 84,    -- 图标格宽度
+	AppCellHeight = 94,   -- 图标格高度（含应用名称）
 	MaxLogLines = 150,
-	DefaultSpeed = 16,    -- 自定义速度输入框默认值
-	DefaultJump = 50,     -- 跳跃高度输入框默认值
 	MarqueeSpeed = 46,    -- 标题栏滚动字幕速度（像素 / 秒）
 	MarqueeTextSize = 11,
 }
@@ -744,20 +745,8 @@ end
 local SCRIPT_URLS = {
 	fly = "https://raw.githubusercontent.com/Sfk994/Df/refs/heads/main/fly.lua",
 	tp  = "https://raw.githubusercontent.com/Sfk994/Df/refs/heads/main/cicktp.lua",
+	car = "https://raw.githubusercontent.com/Sfk994/Df/refs/heads/main/flycar.lua",
 }
-
-local function fmtNum(v)
-	if v % 1 == 0 then
-		return tostring(math.floor(v))
-	end
-	return string.format("%.1f", v)
-end
-
-local function getHumanoid()
-	local char = player.Character
-	if not char then return nil end
-	return char:FindFirstChildOfClass("Humanoid")
-end
 
 local function httpGet(url)
 	-- 执行器一般直接提供 game:HttpGet；原生环境退回 HttpService
@@ -787,100 +776,87 @@ local function runRemote(name, url)
 	end)
 end
 
--- 带输入框的卡片：标题 + 数字输入 + 应用（回车也能应用）
-local function makeNumberCard(parent, opts)
-	local card = new("TextButton", {
-		Size = UDim2.new(1, 0, 0, CONFIG.CardHeight),
-		BackgroundColor3 = THEME.Card,
-		BorderSizePixel = 0,
-		AutoButtonColor = false,
-		Text = "",
+--=============================================================
+-- 快捷应用图标（正方形，类似手机 APP icon）
+--=============================================================
+local function makeAppIcon(parent, opts)
+	local iconSize = CONFIG.AppIconSize
+
+	local cell = new("Frame", {
+		Size = UDim2.fromOffset(CONFIG.AppCellWidth, CONFIG.AppCellHeight),
+		BackgroundTransparency = 1,
 		LayoutOrder = opts.order or 1,
 		Parent = parent,
 	})
-	corner(card, 10)
-	stroke(card, Color3.fromRGB(42, 47, 58), 1)
 
-	new("TextLabel", {
-		Size = UDim2.new(1, -28, 0, 15),
-		Position = UDim2.fromOffset(14, 9),
-		BackgroundTransparency = 1,
-		Font = Enum.Font.GothamBold,
-		Text = opts.title,
-		TextSize = 13,
-		TextColor3 = THEME.Text,
-		TextXAlignment = Enum.TextXAlignment.Left,
-		TextTruncate = Enum.TextTruncate.AtEnd,
-		Parent = card,
-	})
-
-	local box = new("TextBox", {
-		Size = UDim2.new(1, -82, 0, 24),
-		Position = UDim2.fromOffset(14, 30),
-		BackgroundColor3 = Color3.fromRGB(28, 32, 41),
-		BorderSizePixel = 0,
-		Font = Enum.Font.Gotham,
-		Text = fmtNum(opts.value or 0),
-		PlaceholderText = fmtNum(opts.value or 0),
-		PlaceholderColor3 = Color3.fromRGB(90, 98, 114),
-		TextSize = 12,
-		TextColor3 = THEME.Text,
-		TextXAlignment = Enum.TextXAlignment.Center,
-		ClearTextOnFocus = false,
-		Parent = card,
-	})
-	corner(box, 6)
-	stroke(box, Color3.fromRGB(44, 50, 62), 1)
-
-	local applyBtn = new("TextButton", {
-		Size = UDim2.fromOffset(46, 24),
-		AnchorPoint = Vector2.new(1, 0),
-		Position = UDim2.new(1, -14, 0, 30),
-		BackgroundColor3 = Color3.fromRGB(44, 49, 61),
+	-- 正方形图标本体
+	local button = new("TextButton", {
+		Name = opts.abbr,
+		Size = UDim2.fromOffset(iconSize, iconSize),
+		AnchorPoint = Vector2.new(0.5, 0),
+		Position = UDim2.new(0.5, 0, 0, 0),
+		BackgroundColor3 = opts.color or THEME.Accent,
 		BorderSizePixel = 0,
 		AutoButtonColor = false,
-		Font = Enum.Font.GothamMedium,
-		Text = "应用",
-		TextSize = 11,
-		TextColor3 = THEME.Text,
-		Parent = card,
+		Text = "",
+		Parent = cell,
 	})
-	corner(applyBtn, 6)
+	corner(button, 15)
+	new("UIGradient", {
+		Color = ColorSequence.new(opts.color or THEME.Accent, opts.color2 or opts.color or THEME.Accent),
+		Rotation = 135,
+		Parent = button,
+	})
+	new("UIStroke", {
+		Color = Color3.new(1, 1, 1),
+		Transparency = 0.86,
+		Thickness = 1,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+		Parent = button,
+	})
 
-	local lastValid = fmtNum(opts.value or 0)
+	-- 图标里的字母 / 英文缩写
+	new("TextLabel", {
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Font = Enum.Font.GothamBold,
+		Text = opts.abbr or "",
+		TextSize = 16,
+		TextColor3 = Color3.new(1, 1, 1),
+		Parent = button,
+	})
 
-	local function apply()
-		local value = tonumber(box.Text)
-		if not value then
-			box.Text = lastValid
-			log("请输入有效数字（" .. opts.title .. "）", "warn")
-			return
-		end
-		value = math.clamp(value, opts.min or 1, opts.max or 1000)
-		box.Text = fmtNum(value)
-		lastValid = box.Text
-		if opts.apply then opts.apply(value) end
-	end
+	-- 应用名称
+	local nameLabel = new("TextLabel", {
+		Size = UDim2.new(1, 0, 0, 14),
+		Position = UDim2.new(0, 0, 0, iconSize + 7),
+		BackgroundTransparency = 1,
+		Font = Enum.Font.GothamMedium,
+		Text = opts.name or "",
+		TextSize = 11,
+		TextColor3 = THEME.SubText,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Parent = cell,
+	})
 
-	applyBtn.MouseEnter:Connect(function()
-		TweenService:Create(applyBtn, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(54, 60, 74) }):Play()
+	button.MouseEnter:Connect(function()
+		TweenService:Create(button, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Size = UDim2.fromOffset(iconSize + 4, iconSize + 4),
+		}):Play()
+		nameLabel.TextColor3 = THEME.Text
 	end)
-	applyBtn.MouseLeave:Connect(function()
-		TweenService:Create(applyBtn, TweenInfo.new(0.12), { BackgroundColor3 = Color3.fromRGB(44, 49, 61) }):Play()
+	button.MouseLeave:Connect(function()
+		TweenService:Create(button, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Size = UDim2.fromOffset(iconSize, iconSize),
+		}):Play()
+		nameLabel.TextColor3 = THEME.SubText
 	end)
-	applyBtn.MouseButton1Click:Connect(apply)
-	box.FocusLost:Connect(function(enterPressed)
-		if enterPressed then apply() end
-	end)
-
-	card.MouseEnter:Connect(function()
-		TweenService:Create(card, TweenInfo.new(0.12), { BackgroundColor3 = THEME.CardHover }):Play()
-	end)
-	card.MouseLeave:Connect(function()
-		TweenService:Create(card, TweenInfo.new(0.12), { BackgroundColor3 = THEME.Card }):Play()
+	button.MouseButton1Click:Connect(function()
+		if opts.onClick then opts.onClick() end
 	end)
 
-	return card, box
+	return cell
 end
 
 --=============================================================
@@ -888,7 +864,8 @@ end
 --=============================================================
 local mainGrid -- 主功能的网格布局（随窗口宽度重排）
 
-local function makePage(name, layoutKind)
+local function makePage(name, layoutKind, opts)
+	opts = opts or {}
 	local page = new("Frame", {
 		Name = name,
 		Size = UDim2.new(1, 0, 1, 0),
@@ -903,8 +880,42 @@ local function makePage(name, layoutKind)
 		PaddingRight = UDim.new(0, 12),
 		Parent = page,
 	})
+
+	-- 分区标题 / 底部提示（可选）
+	local topInset, bottomInset = 0, 0
+	if opts.header then
+		new("TextLabel", {
+			Size = UDim2.new(1, 0, 0, 13),
+			BackgroundTransparency = 1,
+			Font = Enum.Font.GothamBold,
+			Text = opts.header,
+			TextSize = 10,
+			TextColor3 = THEME.SubText,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Parent = page,
+		})
+		topInset = 18
+	end
+	if opts.hint then
+		new("TextLabel", {
+			Size = UDim2.new(1, 0, 0, 12),
+			AnchorPoint = Vector2.new(0, 1),
+			Position = UDim2.new(0, 0, 1, 0),
+			BackgroundTransparency = 1,
+			Font = Enum.Font.Gotham,
+			Text = opts.hint,
+			TextSize = 10,
+			TextColor3 = Color3.fromRGB(96, 104, 120),
+			TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd,
+			Parent = page,
+		})
+		bottomInset = 16
+	end
+
 	local scroll = new("ScrollingFrame", {
-		Size = UDim2.new(1, 0, 1, 0),
+		Position = UDim2.fromOffset(0, topInset),
+		Size = UDim2.new(1, 0, 1, -(topInset + bottomInset)),
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
 		CanvasSize = UDim2.new(0, 0, 0, 0),
@@ -924,8 +935,10 @@ local function makePage(name, layoutKind)
 
 	if layoutKind == "grid" then
 		mainGrid = new("UIGridLayout", {
-			CellSize = UDim2.new(0.5, -4.5, 0, CONFIG.CardHeight),
-			CellPadding = UDim2.new(0, 9, 0, 9),
+			CellSize = UDim2.fromOffset(CONFIG.AppCellWidth, CONFIG.AppCellHeight),
+			CellPadding = UDim2.new(0, 8, 0, 12),
+			FillDirectionMaxCells = 3,      -- 一行最多 3 个，放不下自动换行
+			HorizontalAlignment = Enum.HorizontalAlignment.Center,
 			SortOrder = Enum.SortOrder.LayoutOrder,
 			Parent = list,
 		})
@@ -940,66 +953,41 @@ local function makePage(name, layoutKind)
 	return page, list
 end
 
-local pageMain, listMain = makePage("Main", "grid")
+local pageMain, listMain = makePage("Main", "grid", {
+	header = "快捷应用",
+	hint = "点击图标从云端加载并执行对应脚本",
+})
 local pageSettings, listSettings = makePage("Settings", "list")
 
--- 主功能：自定义速度 / 跳跃高度 / 飞行 / 点击 TP
-makeNumberCard(listMain, {
-	order = 1,
-	title = "自定义速度",
-	value = CONFIG.DefaultSpeed,
-	min = 1,
-	max = 1000,
-	apply = function(v)
-		local hum = getHumanoid()
-		if not hum then
-			log("未找到角色（Humanoid），无法修改速度", "warn")
-			return
-		end
-		hum.WalkSpeed = v
-		log(string.format("行走速度已设为 %s", fmtNum(v)), "success")
-	end,
-})
-
-makeNumberCard(listMain, {
-	order = 2,
-	title = "跳跃高度",
-	value = CONFIG.DefaultJump,
-	min = 1,
-	max = 1000,
-	apply = function(v)
-		local hum = getHumanoid()
-		if not hum then
-			log("未找到角色（Humanoid），无法修改跳跃", "warn")
-			return
-		end
-		hum.UseJumpPower = true
-		hum.JumpPower = v
-		log(string.format("跳跃力度（JumpPower）已设为 %s", fmtNum(v)), "success")
-	end,
-})
-
-makeCard(listMain, {
-	order = 3,
-	title = "飞行",
-	desc = "加载并执行远程脚本",
-	control = {
-		kind = "pill",
-		text = "运行",
-		onClick = function() runRemote("飞行", SCRIPT_URLS.fly) end,
+-- 主功能：APP 图标网格，点图标即加载并执行对应远程脚本
+local APPS = {
+	{
+		order = 1, name = "飞行", abbr = "FLY",
+		color = Color3.fromRGB(96, 148, 255), color2 = Color3.fromRGB(128, 108, 255),
+		url = SCRIPT_URLS.fly,
 	},
-})
-
-makeCard(listMain, {
-	order = 4,
-	title = "点击 TP",
-	desc = "加载并执行远程脚本",
-	control = {
-		kind = "pill",
-		text = "运行",
-		onClick = function() runRemote("点击 TP", SCRIPT_URLS.tp) end,
+	{
+		order = 2, name = "点击 TP", abbr = "TP",
+		color = Color3.fromRGB(54, 190, 158), color2 = Color3.fromRGB(40, 148, 202),
+		url = SCRIPT_URLS.tp,
 	},
-})
+	{
+		order = 3, name = "飞车", abbr = "CAR",
+		color = Color3.fromRGB(255, 152, 92), color2 = Color3.fromRGB(238, 92, 112),
+		url = SCRIPT_URLS.car,
+	},
+}
+
+for _, app in ipairs(APPS) do
+	makeAppIcon(listMain, {
+		order = app.order,
+		name = app.name,
+		abbr = app.abbr,
+		color = app.color,
+		color2 = app.color2,
+		onClick = function() runRemote(app.name, app.url) end,
+	})
+end
 
 -- 设置：重载 + 日志
 makeCard(listSettings, {
@@ -1343,7 +1331,7 @@ local function sidebarWidth(w)
 	return (w or winW) < 470 and 104 or 132
 end
 
--- 卡片排列：宽 → 2×2，窄 → 1×4（w 默认取当前窗口宽度）
+-- 侧栏 / 标题栏随窗口宽度调整（w 默认取当前窗口宽度）
 local function updateLayout(w)
 	w = w or winW
 	local sw = sidebarWidth(w)
@@ -1355,17 +1343,7 @@ local function updateLayout(w)
 	marqueeWinW = w
 	updateMarqueeVisibility(w)
 
-	local contentW = w - sw - 24
-	if mainGrid then
-		if contentW >= 330 then
-			-- 留 1px 余量：0.5 相对宽 + padding 正好等于容器宽时，浮点误差会把第二列挤到下一行
-			mainGrid.CellSize = UDim2.new(0.5, -5, 0, CONFIG.CardHeight)
-			mainGrid.CellPadding = UDim2.new(0, 9, 0, 9)
-		else
-			mainGrid.CellSize = UDim2.new(1, 0, 0, CONFIG.CardHeight)
-			mainGrid.CellPadding = UDim2.new(0, 0, 0, 8)
-		end
-	end
+	-- APP 图标网格的格子是固定尺寸，放不下时由 UIGridLayout 自动换行（3 → 2 → 1 列）
 end
 
 local function apply()
@@ -1578,7 +1556,7 @@ local function setMinimized(state)
 		winW, winH = restoreW, restoreH
 	end
 
-	-- 动画期间不重排，避免卡片在 2×2 / 1×4 之间闪一下
+	-- 动画期间不重排，避免布局在动画中途抖动
 	updateMarqueeVisibility(winW)
 	layoutLock = true
 	local info = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
