@@ -1,6 +1,7 @@
 --[[
 	==============================================================
-	  DebugUI · Roblox 调试面板 v1.4
+	  DebugUI · Roblox 调试面板 v1.5
+	  （标题栏新增循环滚动字幕，随窗口缩放自动收放）
 	==============================================================
 	  使用方法：
 	    1. 在 StarterGui 里新建一个 LocalScript
@@ -14,6 +15,7 @@
 	    · 窗口边框是一圈缓慢旋转的细彩虹线
 	    · 最小化后收缩成一个小胶囊，只留时间 + 放大 + 关闭
 	    · 左侧「主功能 / 设置」切换右侧内容；主功能为 2×2 卡片，窗口变窄自动变 1×4
+	    · 标题栏空白处循环滚动字幕，窗口拉宽自动变长、拉太窄则隐藏
 
 	  对外接口：
 	    _G.DebugUI:Log("消息", "info")       -- info / success / warn / error
@@ -27,6 +29,7 @@ local Players = game:GetService("Players")
 local UserInputService = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local TextService = game:GetService("TextService")
 
 local player = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
@@ -36,7 +39,7 @@ local playerGui = player:WaitForChild("PlayerGui")
 --=============================================================
 local CONFIG = {
 	Title = "调试面板",
-	Subtitle = "管理员 · v1.4",
+	Subtitle = "管理员 · v1.5",
 	Width = 560,
 	Height = 400,
 	MinWidth = 300,
@@ -47,6 +50,8 @@ local CONFIG = {
 	MinimizedWidth = 152,
 	CardHeight = 66,
 	MaxLogLines = 150,
+	MarqueeSpeed = 46,    -- 标题栏滚动字幕速度（像素 / 秒）
+	MarqueeTextSize = 11,
 }
 
 local THEME = {
@@ -184,6 +189,7 @@ new("Frame", {
 	BackgroundColor3 = THEME.Stroke,
 	BackgroundTransparency = 0.6,
 	BorderSizePixel = 0,
+	ZIndex = 3,
 	Parent = header,
 })
 
@@ -248,7 +254,7 @@ new("TextLabel", {
 })
 
 local titleLabel = new("TextLabel", {
-	Size = UDim2.new(1, -126, 0, 17),
+	Size = UDim2.new(0, 134, 0, 17),
 	Position = UDim2.fromOffset(46, 10),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.GothamBold,
@@ -262,7 +268,7 @@ local titleLabel = new("TextLabel", {
 })
 
 local subtitleLabel = new("TextLabel", {
-	Size = UDim2.new(1, -126, 0, 13),
+	Size = UDim2.new(0, 134, 0, 13),
 	Position = UDim2.fromOffset(46, 28),
 	BackgroundTransparency = 1,
 	Font = Enum.Font.Gotham,
@@ -289,6 +295,86 @@ local clockLabel = new("TextLabel", {
 	Active = true,
 	Parent = header,
 })
+
+--=============================================================
+-- 标题栏滚动字幕（循环滚动，随窗口宽度自动收窄 / 隐藏）
+--=============================================================
+local MARQUEE_X = 156         -- 字幕区起点（标题文字右侧）
+local MARQUEE_RIGHT = 78      -- 右侧让出三个圆点
+local MARQUEE_MIN_W = 170     -- 可用宽度不足时隐藏
+local MARQUEE_FADE = 16       -- 左右淡出宽度
+
+local MARQUEE_LINES = {
+	"科技重塑秩序，公平属于计算。欢迎回来，这里是哈夫克之声，我是克拉拉。",
+	"当人类第一次点燃火焰，黑夜开始退却。当第一台计算机启动，信息开始流通。而今天，人工智能正在开启新的文明篇章。",
+	"我们正在见证一个前所未有的时代，知识不再被垄断，创造不再受限于资源，连接不再受制于距离。",
+	"每一次算法的迭代都在提升社会运行的效率，每一次技术的突破都在拓展人类认知的边界。",
+	"科技真正的价值不是替代人类，而是让更多人拥有改变命运的机会。",
+	"哈夫克相信技术应当服务于所有人，让智慧自由流动，让价值公平共享。",
+	"哈夫克期待与你在未来再次相遇。",
+}
+
+-- 一份完整内容；标签里放两份，滚过一整份后平移回来即可做到无缝、无空白
+local MARQUEE_UNIT = table.concat(MARQUEE_LINES, "　·　") .. "　·　　"
+local MARQUEE_TEXT = MARQUEE_UNIT .. MARQUEE_UNIT
+
+local marquee = new("Frame", {
+	Name = "Marquee",
+	Position = UDim2.fromOffset(MARQUEE_X, 0),
+	Size = UDim2.new(1, -(MARQUEE_X + MARQUEE_RIGHT), 1, 0),
+	BackgroundTransparency = 1,
+	ClipsDescendants = true,
+	Active = false,
+	Parent = header,
+})
+
+local marqueeLabel = new("TextLabel", {
+	Name = "MarqueeText",
+	Size = UDim2.new(0, 0, 1, 0),
+	AutomaticSize = Enum.AutomaticSize.X,
+	Position = UDim2.fromOffset(0, 0),
+	BackgroundTransparency = 1,
+	Font = Enum.Font.Gotham,
+	Text = MARQUEE_TEXT,
+	TextSize = CONFIG.MarqueeTextSize,
+	TextColor3 = Color3.fromRGB(148, 157, 176),
+	TextXAlignment = Enum.TextXAlignment.Left,
+	TextYAlignment = Enum.TextYAlignment.Center,
+	Active = false,
+	Parent = marquee,
+})
+
+-- 两侧用标题栏底色 + 透明度渐变做伪遮罩，让文字淡入淡出而不是硬切
+local function marqueeFade(anchorX, position, from)
+	local mask = new("Frame", {
+		Size = UDim2.fromOffset(MARQUEE_FADE, CONFIG.HeaderHeight),
+		AnchorPoint = Vector2.new(anchorX, 0),
+		Position = position,
+		BackgroundColor3 = THEME.Header,
+		BorderSizePixel = 0,
+		ZIndex = 2,
+		Parent = marquee,
+	})
+	new("UIGradient", {
+		Transparency = NumberSequence.new({
+			NumberSequenceKeypoint.new(0, from),
+			NumberSequenceKeypoint.new(1, 1 - from),
+		}),
+		Parent = mask,
+	})
+	return mask
+end
+
+marqueeFade(0, UDim2.fromOffset(0, 0), 0)     -- 左边缘：实 → 透明
+marqueeFade(1, UDim2.new(1, 0, 0, 0), 1)      -- 右边缘：透明 → 实
+
+local marqueeX, marqueeUnitW = 0, 0
+local marqueeWinW = CONFIG.Width   -- 由 updateLayout 同步，窗口逻辑宽度
+local marqueeReady = false
+
+local function marqueeAvail(w)
+	return (w or marqueeWinW) - (MARQUEE_X + MARQUEE_RIGHT)
+end
 
 --=============================================================
 -- 主体：左侧目录 + 右侧内容
@@ -1037,21 +1123,71 @@ local function clampPos(p)
 	)
 end
 
-local function sidebarWidth()
-	return winW < 470 and 104 or 132
+-- 字幕可见性：最小化 / 窗口太窄时隐藏，宽度变化时把跑出右边界的光标拉回来
+local function updateMarqueeVisibility(w)
+	w = w or marqueeWinW
+	local avail = marqueeAvail(w)
+	local show = (not minimized) and avail >= MARQUEE_MIN_W
+	marquee.Visible = show
+	if not show then return end
+
+	if not marqueeReady then
+		marqueeReady = true
+		marqueeX = 0
+		marqueeLabel.Position = UDim2.fromOffset(0, 0)
+	end
 end
 
--- 卡片排列：宽 → 2×2，窄 → 1×4
-local function updateLayout()
-	local w = sidebarWidth()
-	sidebar.Size = UDim2.new(0, w, 1, 0)
-	contentHolder.Position = UDim2.new(0, w + 1, 0, 0)
-	contentHolder.Size = UDim2.new(1, -(w + 1), 1, 0)
+-- 每帧推进字幕；两份内容完全相同，滚过一整份就把位置平移回来，视觉上永远无缝
+local function stepMarquee(dt)
+	if not marquee.Visible or window.Visible == false then return end
 
-	local contentW = winW - w - 24
+	if marqueeUnitW <= 0 then
+		local ok, sz = pcall(function()
+			return TextService:GetTextSize(
+				MARQUEE_UNIT,
+				CONFIG.MarqueeTextSize,
+				Enum.Font.Gotham,
+				Vector2.new(100000, 200)
+			)
+		end)
+		if ok and sz and sz.X > 0 then
+			marqueeUnitW = sz.X
+		else
+			marqueeUnitW = marqueeLabel.TextBounds.X * 0.5
+		end
+		if marqueeUnitW <= 0 then return end
+	end
+
+	marqueeX -= CONFIG.MarqueeSpeed * math.clamp(dt, 0, 0.1)
+	if marqueeX <= -marqueeUnitW then
+		marqueeX += marqueeUnitW
+	end
+
+	marqueeLabel.Position = UDim2.fromOffset(math.floor(marqueeX + 0.5), 0)
+end
+
+local function sidebarWidth(w)
+	return (w or winW) < 470 and 104 or 132
+end
+
+-- 卡片排列：宽 → 2×2，窄 → 1×4（w 默认取当前窗口宽度）
+local function updateLayout(w)
+	w = w or winW
+	local sw = sidebarWidth(w)
+	sidebar.Size = UDim2.new(0, sw, 1, 0)
+	contentHolder.Position = UDim2.new(0, sw + 1, 0, 0)
+	contentHolder.Size = UDim2.new(1, -(sw + 1), 1, 0)
+
+	-- 标题栏字幕跟着窗口宽度收放
+	marqueeWinW = w
+	updateMarqueeVisibility(w)
+
+	local contentW = w - sw - 24
 	if mainGrid then
-		if contentW >= 310 then
-			mainGrid.CellSize = UDim2.new(0.5, -4.5, 0, CONFIG.CardHeight)
+		if contentW >= 330 then
+			-- 留 1px 余量：0.5 相对宽 + padding 正好等于容器宽时，浮点误差会把第二列挤到下一行
+			mainGrid.CellSize = UDim2.new(0.5, -5, 0, CONFIG.CardHeight)
 			mainGrid.CellPadding = UDim2.new(0, 9, 0, 9)
 		else
 			mainGrid.CellSize = UDim2.new(1, 0, 0, CONFIG.CardHeight)
@@ -1093,51 +1229,75 @@ local function relayout(center)
 	apply()
 end
 
+-- 任何原因导致的窗口尺寸变化（拖拽缩放 / 最大化 / 屏幕旋转 / UIScale）都重新排布
+local layoutLock = false
+window:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
+	if layoutLock then return end
+	local absW = window.AbsoluteSize.X
+	if absW <= 1 then return end
+	local logicalW = math.floor(absW / math.max(uiScale.Scale, 0.01) + 0.5)
+	updateLayout(logicalW)
+end)
+
 --=============================================================
 -- 拖动 / 缩放
 --=============================================================
 local dragState = nil
 local resizeState = nil
 
+-- 关键：InputObject.Position 是 Vector3，直接和 Vector2 相加会报错，统一取 XY
+local function inputXY(input)
+	local p = input.Position
+	return Vector2.new(p.X, p.Y)
+end
+
 local function bindDrag(object)
+	object.Active = true
 	object.InputBegan:Connect(function(input)
 		if input.UserInputType ~= Enum.UserInputType.MouseButton1
 			and input.UserInputType ~= Enum.UserInputType.Touch then
 			return
 		end
 
-		dragState = { startInput = input.Position, origin = pos }
-		local conn
-		conn = input.Changed:Connect(function()
-			if input.UserInputState == Enum.UserInputState.End then
-				dragState = nil
-				conn:Disconnect()
-			end
-		end)
+		dragState = { startInput = inputXY(input), origin = pos }
+		resizeState = nil
 	end)
 end
 
--- 右下角缩放手柄：旋转 45° 的正方形被窗口裁掉，剩下的就是半透明直角三角形
-local GRIP_SIZE = 30
+-- 右下角缩放手柄：热区是透明的正方形按钮，视觉是旋转 45° 被裁出来的三角形
+local GRIP_HIT = 26
 local grip = new("TextButton", {
 	Name = "Grip",
-	Size = UDim2.fromOffset(GRIP_SIZE, GRIP_SIZE),
-	AnchorPoint = Vector2.new(0.5, 0.5),
+	Size = UDim2.fromOffset(GRIP_HIT, GRIP_HIT),
+	AnchorPoint = Vector2.new(1, 1),
 	Position = UDim2.new(1, 0, 1, 0),
-	Rotation = 45,
-	BackgroundColor3 = Color3.new(1, 1, 1),
-	BackgroundTransparency = 0.8,
+	BackgroundTransparency = 1,
 	BorderSizePixel = 0,
 	AutoButtonColor = false,
 	Text = "",
 	Parent = window,
 })
 
+local gripVisual = new("Frame", {
+	Name = "GripVisual",
+	Size = UDim2.fromOffset(30, 30),
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.new(1, 0, 1, 0),
+	Rotation = 45,
+	BackgroundColor3 = Color3.new(1, 1, 1),
+	BackgroundTransparency = 0.8,
+	BorderSizePixel = 0,
+	Active = false,
+	ZIndex = 5,
+	Parent = window,
+})
+grip.ZIndex = 6
+
 grip.MouseEnter:Connect(function()
-	TweenService:Create(grip, TweenInfo.new(0.12), { BackgroundTransparency = 0.58 }):Play()
+	TweenService:Create(gripVisual, TweenInfo.new(0.12), { BackgroundTransparency = 0.55 }):Play()
 end)
 grip.MouseLeave:Connect(function()
-	TweenService:Create(grip, TweenInfo.new(0.12), { BackgroundTransparency = 0.8 }):Play()
+	TweenService:Create(gripVisual, TweenInfo.new(0.12), { BackgroundTransparency = 0.8 }):Play()
 end)
 
 grip.InputBegan:Connect(function(input)
@@ -1147,14 +1307,8 @@ grip.InputBegan:Connect(function(input)
 	end
 	if minimized then return end
 
-	resizeState = { startInput = input.Position, w = winW, h = winH }
-	local conn
-	conn = input.Changed:Connect(function()
-		if input.UserInputState == Enum.UserInputState.End then
-			resizeState = nil
-			conn:Disconnect()
-		end
-	end)
+	resizeState = { startInput = inputXY(input), w = winW, h = winH }
+	dragState = nil
 end)
 
 UserInputService.InputChanged:Connect(function(input)
@@ -1164,14 +1318,14 @@ UserInputService.InputChanged:Connect(function(input)
 	end
 
 	if dragState then
-		local delta = input.Position - dragState.startInput
+		local delta = inputXY(input) - dragState.startInput
 		pos = clampPos(dragState.origin + delta)
 		apply()
 	elseif resizeState then
 		local vp = viewportSize()
-		local delta = (input.Position - resizeState.startInput) / winScale
-		local maxW = (vp.X - 12) / winScale
-		local maxH = (vp.Y - 12) / winScale
+		local delta = (inputXY(input) - resizeState.startInput) / math.max(winScale, 0.01)
+		local maxW = math.max(240, (vp.X - 12) / math.max(winScale, 0.01))
+		local maxH = math.max(200, (vp.Y - 12) / math.max(winScale, 0.01))
 
 		winW = math.clamp(resizeState.w + delta.X, math.min(CONFIG.MinWidth, maxW), maxW)
 		winH = math.clamp(resizeState.h + delta.Y, math.min(CONFIG.MinHeight, maxH), maxH)
@@ -1181,6 +1335,15 @@ UserInputService.InputChanged:Connect(function(input)
 		restoreW, restoreH = winW, winH
 		pos = clampPos(pos)
 		apply()
+	end
+end)
+
+-- 抬起手指 / 松开鼠标时统一收尾，避免状态卡住导致「拖一次以后再也拖不动」
+UserInputService.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1
+		or input.UserInputType == Enum.UserInputType.Touch then
+		dragState = nil
+		resizeState = nil
 	end
 end)
 
@@ -1229,6 +1392,7 @@ local function setMinimized(state)
 	body.Visible = not state
 	bottomBar.Visible = not state
 	grip.Visible = not state
+	gripVisual.Visible = not state
 	minDot.Visible = not state
 
 	local headerH = state and CONFIG.MinimizedHeight or CONFIG.HeaderHeight
@@ -1242,13 +1406,19 @@ local function setMinimized(state)
 		winW, winH = restoreW, restoreH
 	end
 
+	-- 动画期间不重排，避免卡片在 2×2 / 1×4 之间闪一下
+	updateMarqueeVisibility(winW)
+	layoutLock = true
 	local info = TweenInfo.new(0.18, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 	TweenService:Create(window, info, { Size = UDim2.fromOffset(winW, winH) }):Play()
 
 	pos = clampPos(pos)
 	TweenService:Create(window, info, { Position = UDim2.fromOffset(math.floor(pos.X), math.floor(pos.Y)) }):Play()
 
-	updateLayout()
+	task.delay(0.2, function()
+		layoutLock = false
+		updateLayout()
+	end)
 end
 
 local function setMaximized(state)
@@ -1316,6 +1486,9 @@ RunService.RenderStepped:Connect(function(dt)
 	if rainbowGrad then
 		rainbowGrad.Rotation = (rainbowGrad.Rotation + dt * 42) % 360
 	end
+
+	-- 标题栏滚动字幕
+	stepMarquee(dt)
 
 	frames += 1
 	elapsed += dt
