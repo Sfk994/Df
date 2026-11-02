@@ -253,130 +253,44 @@ local sidebar = new("Frame", {
 	Position = UDim2.fromOffset(10, 10),
 	Size = UDim2.new(0, Config.SidebarWidth, 1, -20),
 	BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-	BackgroundTransparency = 0.18,
+	BackgroundTransparency = 0.35,
 	BorderSizePixel = 0,
 	ZIndex = 10,
 	Parent = body,
 })
-round(sidebar, 10)
+round(sidebar, 12)
 
--- 白 → 蓝 淡色渐变（悬浮面板质感）
+-- 白 → 非常淡的蓝 渐变（悬浮面板质感，无描边）
 new("UIGradient", {
 	Color = ColorSequence.new({
 		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
-		ColorSequenceKeypoint.new(1, Color3.fromRGB(196, 218, 250)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(228, 239, 255)),
 	}),
 	Rotation = 90,
 	Parent = sidebar,
 })
-new("UIStroke", {
-	Color = Color3.fromRGB(0, 0, 0),
-	Transparency = 0.9,
-	Thickness = 1,
-	Parent = sidebar,
-})
 
 --=====================================================================
--- 侧边栏图标（Frame 拼绘，单色可随选中变蓝）
+-- 侧边栏图标（英文首字母缩写，随选中变色）
 --=====================================================================
 
-local function makeIcon(kind, parent)
-	local container = new("Frame", {
-		Name = "Icon",
-		Size = UDim2.fromOffset(18, 18),
+local function makeAbbr(abbr, parent)
+	local label = new("TextLabel", {
+		Name = "Abbr",
+		Text = abbr,
+		TextSize = 11,
+		Font = Enum.Font.GothamBold,
+		Position = UDim2.fromOffset(2, 0),
+		Size = UDim2.fromOffset(22, 18),
 		BackgroundTransparency = 1,
-		ClipsDescendants = true,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextYAlignment = Enum.TextYAlignment.Center,
 		ZIndex = 13,
 		Parent = parent,
 	})
-	local painted = {}
-
-	local function fill(props)
-		local fr = new("Frame", props)
-		painted[#painted + 1] = { obj = fr, mode = "fill" }
-		return fr
+	return label, function(c)
+		label.TextColor3 = c
 	end
-
-	local function outline(props, radius)
-		local fr = new("Frame", props)
-		round(fr, radius)
-		local st = new("UIStroke", { Thickness = 1.3, Parent = fr })
-		painted[#painted + 1] = { obj = st, mode = "stroke" }
-		return fr
-	end
-
-	if kind == "clock" then
-		outline({ Position = UDim2.fromOffset(2, 2), Size = UDim2.fromOffset(14, 14), BackgroundTransparency = 1 }, 7)
-		fill({ Position = UDim2.fromOffset(8.4, 4.5), Size = UDim2.fromOffset(1.2, 5) })
-		fill({ Position = UDim2.fromOffset(9, 8.4), Size = UDim2.fromOffset(3.6, 1.2) })
-	elseif kind == "folder" then
-		local tab = fill({ Position = UDim2.fromOffset(2, 4), Size = UDim2.fromOffset(7, 3) })
-		round(tab, 1.5)
-		local box = fill({ Position = UDim2.fromOffset(2, 6), Size = UDim2.fromOffset(14, 8.5) })
-		round(box, 2)
-	elseif kind == "A" then
-		new("TextLabel", {
-			Name = "Glyph",
-			Text = "A",
-			TextSize = 13,
-			Font = Enum.Font.GothamBold,
-			Size = UDim2.fromScale(1, 1),
-			BackgroundTransparency = 1,
-			TextXAlignment = Enum.TextXAlignment.Center,
-			TextYAlignment = Enum.TextYAlignment.Center,
-			ZIndex = 14,
-			Parent = container,
-		})
-	elseif kind == "display" then
-		outline({ Position = UDim2.fromOffset(2.5, 4), Size = UDim2.fromOffset(13, 8.5), BackgroundTransparency = 1 }, 2)
-		local stand = fill({ Position = UDim2.fromOffset(6.5, 13.4), Size = UDim2.fromOffset(5, 1.4) })
-		round(stand, 0.7)
-	elseif kind == "doc" then
-		outline({ Position = UDim2.fromOffset(3.5, 2.5), Size = UDim2.fromOffset(11, 13), BackgroundTransparency = 1 }, 2)
-		fill({ Position = UDim2.fromOffset(6, 7), Size = UDim2.fromOffset(6, 1.2) })
-		fill({ Position = UDim2.fromOffset(6, 10), Size = UDim2.fromOffset(6, 1.2) })
-	elseif kind == "download" then
-		outline({ Position = UDim2.fromOffset(2, 2), Size = UDim2.fromOffset(14, 14), BackgroundTransparency = 1 }, 7)
-		fill({ Position = UDim2.fromOffset(8.4, 5), Size = UDim2.fromOffset(1.2, 5.4) })
-		fill({ Position = UDim2.fromOffset(6.2, 9.4), Size = UDim2.fromOffset(5.6, 1.2) })
-	elseif kind == "film" then
-		outline({ Position = UDim2.fromOffset(2.5, 3.5), Size = UDim2.fromOffset(13, 11), BackgroundTransparency = 1 }, 2)
-		fill({ Position = UDim2.fromOffset(5, 3.5), Size = UDim2.fromOffset(1.1, 11) })
-		fill({ Position = UDim2.fromOffset(12, 3.5), Size = UDim2.fromOffset(1.1, 11) })
-	elseif kind == "photo" then
-		outline({ Position = UDim2.fromOffset(2.5, 3.5), Size = UDim2.fromOffset(13, 11), BackgroundTransparency = 1 }, 2)
-		local sun = fill({ Position = UDim2.fromOffset(4.8, 5.4), Size = UDim2.fromOffset(2.6, 2.6) })
-		round(sun, 1.3)
-		fill({ Position = UDim2.fromOffset(9.5, 9.5), Size = UDim2.fromOffset(4.6, 4.6), Rotation = 45 })
-	elseif kind == "cloud" then
-		local base = fill({ Position = UDim2.fromOffset(3, 8.6), Size = UDim2.fromOffset(12, 5.4) })
-		round(base, 2.7)
-		local l = fill({ Position = UDim2.fromOffset(3.4, 6), Size = UDim2.fromOffset(5, 5) })
-		round(l, 2.5)
-		local r = fill({ Position = UDim2.fromOffset(6.4, 4), Size = UDim2.fromOffset(7, 7) })
-		round(r, 3.5)
-	elseif kind == "house" then
-		fill({ Position = UDim2.fromOffset(5.2, 4), Size = UDim2.fromOffset(7.6, 7.6), Rotation = 45 })
-		local bd = fill({ Position = UDim2.fromOffset(4.5, 9.6), Size = UDim2.fromOffset(9, 5.4) })
-		round(bd, 1)
-	end
-
-	local function setColor(c)
-		for _, p in ipairs(painted) do
-			if p.mode == "fill" then
-				p.obj.BackgroundColor3 = c
-			else
-				p.obj.Color = c
-			end
-		end
-		local glyph = container:FindFirstChild("Glyph")
-		if glyph then
-			glyph.TextColor3 = c
-		end
-	end
-	setColor(C.text)
-
-	return container, setColor
 end
 
 --=====================================================================
@@ -384,19 +298,19 @@ end
 --=====================================================================
 
 local NAV = {
-	{ icon = "clock", name = "最近使用" },
-	{ icon = "folder", name = "共享" },
+	{ abbr = "Re", name = "最近使用" },
+	{ abbr = "Sh", name = "共享" },
 	{ header = "个人收藏" },
-	{ icon = "A", name = "应用程序" },
-	{ icon = "display", name = "桌面" },
-	{ icon = "doc", name = "文稿" },
-	{ icon = "download", name = "下载" },
-	{ icon = "film", name = "影片" },
-	{ icon = "photo", name = "图片" },
-	{ icon = "folder", name = "进行中项目" },
-	{ icon = "folder", name = "Dev" },
+	{ abbr = "Ap", name = "应用程序" },
+	{ abbr = "De", name = "桌面" },
+	{ abbr = "Do", name = "文稿" },
+	{ abbr = "Dl", name = "下载" },
+	{ abbr = "Mo", name = "影片" },
+	{ abbr = "Pi", name = "图片" },
+	{ abbr = "Pr", name = "进行中项目" },
+	{ abbr = "Dv", name = "Dev" },
 	{ header = "位置" },
-	{ icon = "cloud", name = "iCloud 云盘" },
+	{ abbr = "iC", name = "iCloud 云盘" },
 }
 
 local navList = new("ScrollingFrame", {
@@ -489,31 +403,32 @@ for _, def in ipairs(NAV) do
 			Parent = navList,
 		})
 	else
-		local row = new("Frame", {
+		local row = new("TextButton", {
 			Name = "Nav_" .. def.name,
 			Size = UDim2.new(1, 0, 0, 30),
 			BackgroundColor3 = Color3.fromRGB(0, 0, 0),
 			BackgroundTransparency = 1,
 			BorderSizePixel = 0,
-			Active = true,
+			Text = "",
+			AutoButtonColor = false,
 			LayoutOrder = order,
 			ZIndex = 12,
 			Parent = navList,
 		})
 		round(row, 6)
 
-		local _, setIconColor = makeIcon(def.icon, row)
+		local _, setIconColor = makeAbbr(def.abbr, row)
 
 		local label = new("TextLabel", {
 			Name = "Label",
 			Text = def.name,
 			TextSize = 13,
-			Font = Enum.Font.Gotham,
+			Font = Enum.Font.GothamMedium,
 			TextColor3 = C.text,
 			TextXAlignment = Enum.TextXAlignment.Left,
 			TextTruncate = Enum.TextTruncate.AtEnd,
-			Position = UDim2.fromOffset(36, 0),
-			Size = UDim2.new(1, -42, 1, 0),
+			Position = UDim2.fromOffset(34, 0),
+			Size = UDim2.new(1, -40, 1, 0),
 			BackgroundTransparency = 1,
 			ZIndex = 13,
 			Parent = row,
@@ -522,10 +437,7 @@ for _, def in ipairs(NAV) do
 		local entry = { row = row, label = label, name = def.name, setColor = setIconColor }
 		navRows[#navRows + 1] = entry
 
-		row.InputBegan:Connect(function(input)
-			if not isClick(input) then
-				return
-			end
+		row.Activated:Connect(function()
 			goTo(table.find(navRows, entry), true)
 		end)
 	end
@@ -545,14 +457,15 @@ end
 
 local content = new("Frame", {
 	Name = "Content",
-	Position = UDim2.fromOffset(Config.SidebarWidth + 10, 0),
-	Size = UDim2.new(1, -(Config.SidebarWidth + 10), 1, 0),
+	Position = UDim2.fromOffset(Config.SidebarWidth + 18, 10),
+	Size = UDim2.new(1, -(Config.SidebarWidth + 28), 1, -20),
 	BackgroundColor3 = C.content,
-	BackgroundTransparency = 0.4,
+	BackgroundTransparency = 0.25,
 	BorderSizePixel = 0,
 	ZIndex = 10,
 	Parent = body,
 })
+round(content, 12)
 
 -- 内容区顶栏：标题随所选目录同步；返回/前进按钮置于顶部拖动条上以便点击
 titleLabel = new("TextLabel", {
@@ -578,7 +491,7 @@ backBtn = new("TextButton", {
 	Font = Enum.Font.Gotham,
 	TextColor3 = C.text,
 	TextTransparency = 0.72,
-	Position = UDim2.fromOffset(Config.SidebarWidth + 10 + 16, 0),
+	Position = UDim2.fromOffset(Config.SidebarWidth + 18 + 14, 0),
 	Size = UDim2.fromOffset(26, Config.HeaderHeight),
 	BackgroundTransparency = 1,
 	AutoButtonColor = false,
@@ -594,7 +507,7 @@ fwdBtn = new("TextButton", {
 	Font = Enum.Font.Gotham,
 	TextColor3 = C.text,
 	TextTransparency = 0.72,
-	Position = UDim2.fromOffset(Config.SidebarWidth + 10 + 42, 0),
+	Position = UDim2.fromOffset(Config.SidebarWidth + 18 + 40, 0),
 	Size = UDim2.fromOffset(26, Config.HeaderHeight),
 	BackgroundTransparency = 1,
 	AutoButtonColor = false,
@@ -604,19 +517,13 @@ fwdBtn = new("TextButton", {
 	Parent = dragStrip,
 })
 
-backBtn.InputBegan:Connect(function(input)
-	if not isClick(input) then
-		return
-	end
+backBtn.Activated:Connect(function()
 	if historyIndex > 1 then
 		historyIndex = historyIndex - 1
 		applySelection(history[historyIndex])
 	end
 end)
-fwdBtn.InputBegan:Connect(function(input)
-	if not isClick(input) then
-		return
-	end
+fwdBtn.Activated:Connect(function()
 	if historyIndex < #history then
 		historyIndex = historyIndex + 1
 		applySelection(history[historyIndex])
@@ -812,13 +719,14 @@ local function runFile(rawUrl)
 end
 
 local function addFileRow(item, layoutOrder)
-	local row = new("Frame", {
+	local row = new("TextButton", {
 		Name = "File_" .. item.name,
-		Size = UDim2.new(1, 0, 0, 34),
+		Size = UDim2.new(1, 0, 0, 36),
 		BackgroundColor3 = C.blue,
 		BackgroundTransparency = 1,
 		BorderSizePixel = 0,
-		Active = true,
+		Text = "",
+		AutoButtonColor = false,
 		LayoutOrder = layoutOrder,
 		ZIndex = 12,
 		Parent = fileArea,
@@ -917,18 +825,15 @@ local function addFileRow(item, layoutOrder)
 		end
 	end
 
-	-- 单击选中，双击运行（仅文件类型）
+	-- 单击选中，双击执行（Activated：按下和抬起都在行内才触发，滚动列表不会误触）
 	local lastClick = 0
-	row.InputBegan:Connect(function(input)
-		if not isClick(input) then
-			return
-		end
+	row.Activated:Connect(function()
 		for _, r in ipairs(fileRows) do
 			r.setRowSelected(false)
 		end
 		setRowSelected(true)
 		local now = tick()
-		if now - lastClick < 0.35 and item.type == "file" then
+		if now - lastClick < 0.45 and item.type == "file" then
 			runFile(item.rawUrl)
 		end
 		lastClick = now
