@@ -694,7 +694,7 @@ end
 -- iCloud 云盘：GitHub 文件列表（竖条单行排列）
 --=====================================================================
 
-local REPO_API = "https://api.github.com/repos/Sfk994/Df/contents/main"
+local REPO_API = "https://data.jsdelivr.com/v1/packages/gh/Sfk994/Df"
 local RAW_BASE = "https://raw.githubusercontent.com/Sfk994/Df/refs/heads/main/"
 
 local function formatSize(bytes)
@@ -704,14 +704,6 @@ local function formatSize(bytes)
 		return string.format("%.1f KB", bytes / 1024)
 	end
 	return tostring(bytes) .. " B"
-end
-
-local function formatTime(iso)
-	local y, m, d, h, mi = string.match(iso or "", "(%d+)%-(%d+)%-(%d+)T(%d+):(%d+)")
-	if y then
-		return string.format("%s-%s-%s %s:%s", y, m, d, h, mi)
-	end
-	return "—"
 end
 
 local fileArea = new("ScrollingFrame", {
@@ -731,7 +723,7 @@ local fileArea = new("ScrollingFrame", {
 })
 new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Parent = fileArea })
 
--- 列表头：名称 | 更新时间 | 大小
+-- 列表头：名称 | 类型 | 大小
 local head = new("Frame", {
 	Name = "Head",
 	Size = UDim2.new(1, 0, 0, 30),
@@ -752,13 +744,13 @@ new("TextLabel", {
 	Parent = head,
 })
 new("TextLabel", {
-	Text = "更新时间",
+	Text = "类型",
 	TextSize = 11,
 	Font = Enum.Font.GothamMedium,
 	TextColor3 = C.dim,
 	TextXAlignment = Enum.TextXAlignment.Right,
-	Position = UDim2.new(1, -196, 0, 0),
-	Size = UDim2.fromOffset(106, 30),
+	Position = UDim2.new(1, -150, 0, 0),
+	Size = UDim2.fromOffset(62, 30),
 	BackgroundTransparency = 1,
 	Parent = head,
 })
@@ -875,20 +867,20 @@ local function addFileRow(item, layoutOrder)
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextTruncate = Enum.TextTruncate.AtEnd,
 		Position = UDim2.fromOffset(42, 0),
-		Size = UDim2.new(1, -244, 1, 0),
+		Size = UDim2.new(1, -192, 1, 0),
 		BackgroundTransparency = 1,
 		ZIndex = 13,
 		Parent = row,
 	})
-	local timeLabel = new("TextLabel", {
-		Name = "Time",
-		Text = "—",
+	local typeLabel = new("TextLabel", {
+		Name = "Type",
+		Text = tostring(item.type or "file"),
 		TextSize = 11,
 		Font = Enum.Font.Gotham,
 		TextColor3 = C.dim,
 		TextXAlignment = Enum.TextXAlignment.Right,
-		Position = UDim2.new(1, -196, 0, 0),
-		Size = UDim2.fromOffset(106, 34),
+		Position = UDim2.new(1, -150, 0, 0),
+		Size = UDim2.fromOffset(62, 34),
 		BackgroundTransparency = 1,
 		ZIndex = 13,
 		Parent = row,
@@ -910,7 +902,7 @@ local function addFileRow(item, layoutOrder)
 	local function setRowSelected(on)
 		row.BackgroundTransparency = on and 0 or 1
 		nameLabel.TextColor3 = on and Color3.new(1, 1, 1) or C.text
-		timeLabel.TextColor3 = on and Color3.new(1, 1, 1) or C.dim
+		typeLabel.TextColor3 = on and Color3.new(1, 1, 1) or C.dim
 		sizeLabel.TextColor3 = on and Color3.new(1, 1, 1) or C.dim
 		if on then
 			iconStroke.Color = Color3.new(1, 1, 1)
@@ -925,7 +917,7 @@ local function addFileRow(item, layoutOrder)
 		end
 	end
 
-	-- 单击选中，双击运行
+	-- 单击选中，双击运行（仅文件类型）
 	local lastClick = 0
 	row.InputBegan:Connect(function(input)
 		if not isClick(input) then
@@ -936,13 +928,13 @@ local function addFileRow(item, layoutOrder)
 		end
 		setRowSelected(true)
 		local now = tick()
-		if now - lastClick < 0.35 then
+		if now - lastClick < 0.35 and item.type == "file" then
 			runFile(item.rawUrl)
 		end
 		lastClick = now
 	end)
 
-	local entry = { row = row, setRowSelected = setRowSelected, timeLabel = timeLabel }
+	local entry = { row = row, setRowSelected = setRowSelected }
 	fileRows[#fileRows + 1] = entry
 	return entry
 end
@@ -952,15 +944,16 @@ local function loadFileList()
 	statusLabel.Visible = true
 	statusLabel.Text = "正在加载文件列表…"
 	task.spawn(function()
-		local ok, data = pcall(function()
+		-- 第一步：拿到版本 self 链接
+		local ok1, pkg = pcall(function()
 			return HttpService:JSONDecode(game:HttpGet(REPO_API))
 		end)
-		if not ok or type(data) ~= "table" then
-			local err = tostring(data)
+		if not ok1 or type(pkg) ~= "table" then
+			local err = tostring(pkg)
 			if string.find(err, "not enabled", 1, true) or string.find(err, "HttpEnabled", 1, true) then
 				statusLabel.Text = "加载失败：此游戏未开启 HTTP 请求（HttpService），请在游戏设置中启用后重试"
 			elseif string.find(err, "429", 1, true) or string.find(err, "403", 1, true) then
-				statusLabel.Text = "加载失败：GitHub 限流中，点此重试"
+				statusLabel.Text = "加载失败：请求被拒绝（可能限流），点此重试"
 			else
 				statusLabel.Text = "加载失败：" .. err .. "（点此重试）"
 			end
@@ -968,15 +961,43 @@ local function loadFileList()
 			return
 		end
 
+		local selfUrl = nil
+		if pkg.versions and pkg.versions[1] and pkg.versions[1].links and pkg.versions[1].links.self then
+			selfUrl = pkg.versions[1].links.self
+		end
+		if not selfUrl then
+			statusLabel.Text = "加载失败：未找到版本信息（点此重试）"
+			filesLoaded = false
+			return
+		end
+
+		-- 第二步：用 self 链接获取文件列表
+		local ok2, data = pcall(function()
+			return HttpService:JSONDecode(game:HttpGet(selfUrl))
+		end)
+		if not ok2 or type(data) ~= "table" or type(data.files) ~= "table" then
+			local err = tostring(data)
+			if string.find(err, "not enabled", 1, true) or string.find(err, "HttpEnabled", 1, true) then
+				statusLabel.Text = "加载失败：此游戏未开启 HTTP 请求（HttpService），请在游戏设置中启用后重试"
+			elseif string.find(err, "429", 1, true) or string.find(err, "403", 1, true) then
+				statusLabel.Text = "加载失败：请求被拒绝（可能限流），点此重试"
+			else
+				statusLabel.Text = "加载失败：" .. err .. "（点此重试）"
+			end
+			filesLoaded = false
+			return
+		end
+
 		local files = {}
-		for _, item in ipairs(data) do
-			if item.type == "file" then
-				item.rawUrl = RAW_BASE .. tostring(item.path)
+		for _, item in ipairs(data.files) do
+			if item.name then
+				item.rawUrl = RAW_BASE .. tostring(item.name)
 				files[#files + 1] = item
 			end
 		end
+		-- 保持 jsDelivr 返回顺序（已按名称排序）
 		table.sort(files, function(a, b)
-			return a.name < b.name
+			return tostring(a.name) < tostring(b.name)
 		end)
 
 		if #files == 0 then
@@ -986,47 +1007,9 @@ local function loadFileList()
 
 		statusLabel.Visible = false
 
-		-- 先渲染名称 + 大小
+		-- 渲染：名称 | 类型 | 大小
 		for i, item in ipairs(files) do
 			addFileRow(item, i + 2)
-		end
-
-		-- 限并发获取每个文件的最近提交时间（更新时间），避免触发 GitHub 限流
-		local CONCURRENCY = 3
-		local queue = {}
-		for i, item in ipairs(files) do
-			queue[#queue + 1] = { index = i, path = item.path }
-		end
-		local nextIndex = 0
-		local pending = #queue
-
-		local function fetchTime()
-			nextIndex = nextIndex + 1
-			local job = queue[nextIndex]
-			if not job then
-				return
-			end
-			local t = nil
-			pcall(function()
-				local url = "https://api.github.com/repos/Sfk994/Df/commits?path="
-					.. HttpService:UrlEncode(job.path)
-					.. "&per_page=1"
-				local j = HttpService:JSONDecode(game:HttpGet(url))
-				if j and j[1] and j[1].commit and j[1].commit.committer then
-					t = j[1].commit.committer.date
-				end
-			end)
-			local entry = fileRows[job.index]
-			if entry and entry.timeLabel then
-				entry.timeLabel.Text = formatTime(t)
-			end
-			pending = pending - 1
-			if pending > 0 then
-				task.spawn(fetchTime)
-			end
-		end
-		for _ = 1, math.min(CONCURRENCY, #queue) do
-			task.spawn(fetchTime)
 		end
 	end)
 end
