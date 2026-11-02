@@ -211,16 +211,19 @@ local lights = new("Frame", {
 })
 
 local trafficColors = { C.red, C.yellow, C.green }
+local trafficGlyphs = { "×", "−", "□" }
 local trafficFrames = {}
 
 for index = 1, 3 do
-	local hit = new("Frame", {
+	local base = trafficColors[index]
+	local hit = new("TextButton", {
 		Name = "Light" .. index,
 		Position = UDim2.fromOffset((index - 1) * 22, 0),
 		Size = UDim2.fromOffset(22, 22),
 		BackgroundTransparency = 1,
+		Text = "",
+		AutoButtonColor = false,
 		ZIndex = 42,
-		Active = true,
 		Parent = lights,
 	})
 
@@ -228,7 +231,7 @@ for index = 1, 3 do
 		Name = "Dot",
 		Position = UDim2.fromOffset(4.5, 4.5),
 		Size = UDim2.fromOffset(13, 13),
-		BackgroundColor3 = trafficColors[index],
+		BackgroundColor3 = base,
 		BorderSizePixel = 0,
 		ZIndex = 43,
 		Parent = hit,
@@ -240,6 +243,40 @@ for index = 1, 3 do
 		Thickness = 1,
 		Parent = dot,
 	})
+
+	-- 图例文字：× / − / □，悬停或按下时显示
+	local glyph = new("TextLabel", {
+		Name = "Glyph",
+		Text = trafficGlyphs[index],
+		TextSize = 10,
+		Font = Enum.Font.GothamBold,
+		TextColor3 = base:Lerp(Color3.new(0, 0, 0), 0.5),
+		TextTransparency = 1,
+		Position = UDim2.fromOffset(0, index == 2 and -1 or 0),
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextYAlignment = Enum.TextYAlignment.Center,
+		ZIndex = 44,
+		Parent = dot,
+	})
+
+	hit.MouseEnter:Connect(function()
+		glyph.TextTransparency = 0
+	end)
+	hit.MouseLeave:Connect(function()
+		glyph.TextTransparency = 1
+	end)
+	hit.InputBegan:Connect(function(input)
+		if isClick(input) then
+			glyph.TextTransparency = 0
+		end
+	end)
+	hit.InputEnded:Connect(function(input)
+		if isClick(input) then
+			glyph.TextTransparency = 1
+		end
+	end)
 
 	trafficFrames[index] = hit
 end
@@ -281,7 +318,7 @@ local function makeAbbr(abbr, parent)
 		TextSize = 11,
 		Font = Enum.Font.GothamBold,
 		Position = UDim2.fromOffset(2, 0),
-		Size = UDim2.fromOffset(22, 18),
+		Size = UDim2.fromOffset(22, 30),
 		BackgroundTransparency = 1,
 		TextXAlignment = Enum.TextXAlignment.Center,
 		TextYAlignment = Enum.TextYAlignment.Center,
@@ -718,6 +755,8 @@ local function runFile(rawUrl)
 	end)
 end
 
+local recordRecent -- 前置声明：双击执行文件后记录到「最近使用」
+
 local function addFileRow(item, layoutOrder)
 	local row = new("TextButton", {
 		Name = "File_" .. item.name,
@@ -732,6 +771,18 @@ local function addFileRow(item, layoutOrder)
 		Parent = fileArea,
 	})
 	round(row, 6)
+
+	-- 底部分隔线（细淡黑色，左右留白）
+	new("Frame", {
+		Name = "Divider",
+		Position = UDim2.new(0, 16, 1, -1),
+		Size = UDim2.new(1, -32, 0, 1),
+		BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+		BackgroundTransparency = 0.9,
+		BorderSizePixel = 0,
+		ZIndex = 14,
+		Parent = row,
+	})
 
 	-- 文件图标（Frame 拼绘的小文档）
 	local ic = new("Frame", {
@@ -835,6 +886,7 @@ local function addFileRow(item, layoutOrder)
 		local now = tick()
 		if now - lastClick < 0.45 and item.type == "file" then
 			runFile(item.rawUrl)
+			recordRecent(item.name)
 		end
 		lastClick = now
 	end)
@@ -929,17 +981,214 @@ statusLabel.InputBegan:Connect(function(input)
 	end
 end)
 
+--=====================================================================
+-- 最近使用：文件网格（脚本文件 = 黑底绿框 + 类型字，双击执行）
+--=====================================================================
+
+local recentGridArea = new("Frame", {
+	Name = "RecentArea",
+	Position = UDim2.new(0, 0, 0, Config.HeaderHeight),
+	Size = UDim2.new(1, 0, 1, -Config.HeaderHeight),
+	BackgroundTransparency = 1,
+	ClipsDescendants = true,
+	Visible = false,
+	ZIndex = 11,
+	Parent = content,
+})
+
+local recentGrid = new("Frame", {
+	Name = "RecentGrid",
+	Position = UDim2.fromOffset(20, 8),
+	Size = UDim2.new(1, -40, 1, -28),
+	BackgroundTransparency = 1,
+	ZIndex = 12,
+	Parent = recentGridArea,
+})
+
+local recentLayout = new("UIGridLayout", {
+	CellPadding = UDim2.fromOffset(14, 16),
+	SortOrder = Enum.SortOrder.LayoutOrder,
+	HorizontalAlignment = Enum.HorizontalAlignment.Left,
+	VerticalAlignment = Enum.VerticalAlignment.Top,
+	Parent = recentGrid,
+})
+
+-- 预置几个脚本文件作为初始「最近使用」
+local recentFiles = { "B.lua", "box.lua", "C.lua", "fly.lua" }
+local recentCells = {}
+
+local function isScript(name)
+	return string.sub(name, -4) == ".lua"
+end
+
+local function fileTypeLabel(name)
+	local ext = string.match(name or "", "%.(%w+)$")
+	if ext then
+		return string.upper(ext)
+	end
+	return "FILE"
+end
+
+local function clearRecent()
+	for _, c in ipairs(recentCells) do
+		c:Destroy()
+	end
+	recentCells = {}
+end
+
+local function makeRecentCell(name, order)
+	local cell = new("Frame", {
+		Name = "Recent_" .. name,
+		BackgroundTransparency = 1,
+		LayoutOrder = order,
+		ZIndex = 13,
+		Parent = recentGrid,
+	})
+
+	local icon = new("TextButton", {
+		Name = "Icon",
+		Position = UDim2.fromOffset(0, 0),
+		Size = UDim2.new(1, 0, 1, -24),
+		BackgroundColor3 = Color3.fromRGB(20, 20, 22),
+		BorderSizePixel = 0,
+		Text = "",
+		AutoButtonColor = false,
+		ZIndex = 14,
+		Parent = cell,
+	})
+	round(icon, 17)
+
+	if isScript(name) then
+		-- 脚本文件：黑底 + 绿色边框 + 类型字
+		new("UIStroke", {
+			Color = Color3.fromRGB(40, 200, 64),
+			Thickness = 1.6,
+			Parent = icon,
+		})
+		new("TextLabel", {
+			Name = "Type",
+			Text = fileTypeLabel(name),
+			TextSize = 13,
+			Font = Enum.Font.GothamBold,
+			TextColor3 = Color3.fromRGB(120, 255, 150),
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			TextYAlignment = Enum.TextYAlignment.Center,
+			ZIndex = 15,
+			Parent = icon,
+		})
+	else
+		-- 非脚本文件：浅灰渐变块
+		new("UIGradient", {
+			Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, C.appTop),
+				ColorSequenceKeypoint.new(1, C.appBottom),
+			}),
+			Rotation = 90,
+			Parent = icon,
+		})
+		new("UIStroke", {
+			Color = Color3.fromRGB(0, 0, 0),
+			Transparency = 0.93,
+			Thickness = 1,
+			Parent = icon,
+		})
+		new("TextLabel", {
+			Name = "Type",
+			Text = fileTypeLabel(name),
+			TextSize = 12,
+			Font = Enum.Font.GothamBold,
+			TextColor3 = C.dim,
+			Size = UDim2.fromScale(1, 1),
+			BackgroundTransparency = 1,
+			TextXAlignment = Enum.TextXAlignment.Center,
+			TextYAlignment = Enum.TextYAlignment.Center,
+			ZIndex = 15,
+			Parent = icon,
+		})
+	end
+
+	local nameLabel = new("TextLabel", {
+		Name = "Name",
+		Text = name,
+		TextSize = 11,
+		Font = Enum.Font.GothamMedium,
+		TextColor3 = C.text,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Position = UDim2.new(0, 0, 1, -22),
+		Size = UDim2.new(1, 0, 0, 20),
+		BackgroundTransparency = 1,
+		TextXAlignment = Enum.TextXAlignment.Center,
+		TextYAlignment = Enum.TextYAlignment.Center,
+		ZIndex = 14,
+		Parent = cell,
+	})
+
+	-- 双击执行（仅脚本文件）
+	local lastClick = 0
+	icon.Activated:Connect(function()
+		local now = tick()
+		if now - lastClick < 0.45 and isScript(name) then
+			runFile(RAW_BASE .. name)
+			recordRecent(name)
+		end
+		lastClick = now
+	end)
+
+	recentCells[#recentCells + 1] = cell
+end
+
+local function renderRecent()
+	clearRecent()
+	for i, name in ipairs(recentFiles) do
+		makeRecentCell(name, i)
+	end
+end
+
+recordRecent = function(name)
+	local newList = { name }
+	for _, n in ipairs(recentFiles) do
+		if n ~= name then
+			newList[#newList + 1] = n
+		end
+	end
+	while #newList > 8 do
+		newList[#newList] = nil
+	end
+	recentFiles = newList
+	renderRecent()
+end
+
+local function updateRecentGrid()
+	local w = recentGrid.AbsoluteSize.X
+	if w <= 0 then
+		return
+	end
+	local gap = 14
+	local cols = math.clamp(math.floor((w + gap) / (96 + gap)), 1, 4)
+	local cell = math.min(96, math.floor((w - (cols - 1) * gap) / cols))
+	recentLayout.CellSize = UDim2.fromOffset(cell, cell + 24)
+end
+
 -- 选中目录时切换内容视图
 selectFolder = function(name)
 	if name == "iCloud 云盘" then
 		gridArea.Visible = false
+		recentGridArea.Visible = false
 		fileArea.Visible = true
 		if not filesLoaded then
 			filesLoaded = true
 			loadFileList()
 		end
+	elseif name == "最近使用" then
+		gridArea.Visible = false
+		recentGridArea.Visible = true
+		fileArea.Visible = false
+		task.defer(updateRecentGrid)
 	else
 		gridArea.Visible = true
+		recentGridArea.Visible = false
 		fileArea.Visible = false
 		task.defer(updateGrid)
 	end
@@ -1082,17 +1331,23 @@ UserInputService.InputChanged:Connect(function(input)
 	end
 end)
 
--- 双击顶部拖动条 → 全屏
+-- 双击顶部拖动条 → 全屏（两次点击位置接近才算双击，避免拖动被误判）
 local lastClick = 0
+local lastClickPos = nil
 dragStrip.InputBegan:Connect(function(input)
 	if not isClick(input) then
 		return
 	end
 	local now = tick()
-	if now - lastClick < 0.35 then
-		toggleFullscreen()
+	local dbl = false
+	if lastClickPos and now - lastClick < 0.4 then
+		dbl = (input.Position - lastClickPos).Magnitude < 18
 	end
 	lastClick = now
+	lastClickPos = input.Position
+	if dbl then
+		toggleFullscreen()
+	end
 end)
 
 -- 右下角缩放
@@ -1115,6 +1370,7 @@ UserInputService.InputEnded:Connect(function(input)
 		if not isFullscreenFlag then
 			keepWindowOnScreen()
 			updateGrid()
+			updateRecentGrid()
 		end
 	end
 end)
@@ -1138,17 +1394,11 @@ local function closeWindow()
 	reopenButton.Visible = true
 end
 
-trafficFrames[1].InputBegan:Connect(function(input)
-	if not isClick(input) then
-		return
-	end
+trafficFrames[1].Activated:Connect(function()
 	closeWindow()
 end)
 
-trafficFrames[2].InputBegan:Connect(function(input)
-	if not isClick(input) then
-		return
-	end
+trafficFrames[2].Activated:Connect(function()
 	closeWindow()
 end)
 
@@ -1171,13 +1421,13 @@ toggleFullscreen = function()
 			Size = savedSize or UDim2.fromOffset(Config.Width, Config.Height),
 		})
 	end
-	task.delay(0.4, updateGrid)
+	task.delay(0.4, function()
+		updateGrid()
+		updateRecentGrid()
+	end)
 end
 
-trafficFrames[3].InputBegan:Connect(function(input)
-	if not isClick(input) then
-		return
-	end
+trafficFrames[3].Activated:Connect(function()
 	toggleFullscreen()
 end)
 
@@ -1197,6 +1447,10 @@ task.defer(function()
 	tween(window, TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
 		GroupTransparency = 0,
 	})
+	renderRecent()
 	updateGrid()
-	task.delay(0.1, updateGrid)
+	task.delay(0.1, function()
+		updateGrid()
+		updateRecentGrid()
+	end)
 end)
