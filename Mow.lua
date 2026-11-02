@@ -53,8 +53,9 @@ local C = {
 	appBottom = Color3.fromRGB(208, 214, 225),
 }
 
-local EASE = TweenInfo.new(0.3, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-local EASE_FAST = TweenInfo.new(0.18, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
+local EASE = TweenInfo.new(0.32, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+local EASE_FAST = TweenInfo.new(0.2, Enum.EasingStyle.Quart, Enum.EasingDirection.Out)
+local EASE_IN = TweenInfo.new(0.26, Enum.EasingStyle.Quart, Enum.EasingDirection.In)
 
 --=====================================================================
 -- 小工具
@@ -125,14 +126,13 @@ local gui = new("ScreenGui", {
 local viewport = viewportSize()
 local startWidth = math.min(Config.Width, viewport.X - 24)
 local startHeight = math.min(Config.Height, viewport.Y - 48)
+local centerX = math.floor((viewport.X - startWidth) / 2)
+local centerY = math.floor((viewport.Y - startHeight) / 2)
 
 local window = new("CanvasGroup", {
 	Name = "Window",
 	AnchorPoint = Vector2.new(0, 0),
-	Position = UDim2.fromOffset(
-		math.floor((viewport.X - startWidth) / 2),
-		math.floor((viewport.Y - startHeight) / 2)
-	),
+	Position = UDim2.fromOffset(centerX, centerY + 28), -- 入场动画起点：略下移
 	Size = UDim2.fromOffset(startWidth, startHeight),
 	BackgroundTransparency = 1,
 	GroupTransparency = 1,
@@ -168,8 +168,8 @@ end
 local body = new("Frame", {
 	Name = "Body",
 	Size = UDim2.fromScale(1, 1),
-	BackgroundColor3 = C.window,
-	BackgroundTransparency = 0.08,
+	BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+	BackgroundTransparency = 0.5, -- 关键：让游戏世界透出，形成毛玻璃感
 	BorderSizePixel = 0,
 	ClipsDescendants = true,
 	ZIndex = 8,
@@ -177,10 +177,35 @@ local body = new("Frame", {
 })
 round(body, Config.CornerRadius)
 new("UIStroke", {
-	Color = Color3.fromRGB(0, 0, 0),
+	Color = Color3.fromRGB(255, 255, 255),
 	Thickness = 1,
-	Transparency = 0.86,
+	Transparency = 0.5,
 	ApplyStrokeMode = Enum.ApplyStrokeMode.Border,
+	Parent = body,
+})
+
+-- 毛玻璃模拟：白 → 极淡蓝 渐变（Roblox 无真模糊，靠半透明 + 渐变 + 高光还原磨砂感）
+new("UIGradient", {
+	Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+		ColorSequenceKeypoint.new(0.55, Color3.fromRGB(246, 248, 255)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(228, 236, 250)),
+	}),
+	Rotation = 90,
+	Parent = body,
+})
+
+-- 斜向高光条（模拟玻璃反光）
+new("Frame", {
+	Name = "Sheen",
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.fromScale(0.32, 0.5),
+	Size = UDim2.fromScale(0.55, 1.7),
+	Rotation = 22,
+	BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+	BackgroundTransparency = 0.9,
+	BorderSizePixel = 0,
+	ZIndex = 7,
 	Parent = body,
 })
 
@@ -497,7 +522,7 @@ local content = new("Frame", {
 	Position = UDim2.fromOffset(Config.SidebarWidth + 18, 10),
 	Size = UDim2.new(1, -(Config.SidebarWidth + 28), 1, -20),
 	BackgroundColor3 = C.content,
-	BackgroundTransparency = 0.25,
+	BackgroundTransparency = 0.35,
 	BorderSizePixel = 0,
 	ZIndex = 10,
 	Parent = body,
@@ -1263,13 +1288,22 @@ new("TextLabel", {
 	Parent = reopenButton,
 })
 
+local reopenScale = new("UIScale", { Scale = 0.9, Parent = reopenButton })
+
 local function showWindow(show)
 	if show then
 		window.Visible = true
 		tween(window, EASE, { GroupTransparency = 0 })
+		tween(window, EASE, {
+			Position = UDim2.fromOffset(window.Position.X.Offset, window.Position.Y.Offset - 24),
+		})
 	else
-		tween(window, EASE_FAST, { GroupTransparency = 1 })
-		task.delay(0.2, function()
+		local pos = window.Position
+		tween(window, EASE_IN, { GroupTransparency = 1 })
+		tween(window, EASE_IN, {
+			Position = UDim2.fromOffset(pos.X.Offset, pos.Y.Offset + 24),
+		})
+		task.delay(0.28, function()
 			if window.GroupTransparency > 0.99 then
 				window.Visible = false
 			end
@@ -1392,6 +1426,8 @@ end
 local function closeWindow()
 	showWindow(false)
 	reopenButton.Visible = true
+	reopenScale.Scale = 0.9
+	tween(reopenScale, EASE, { Scale = 1 })
 end
 
 trafficFrames[1].Activated:Connect(function()
@@ -1408,12 +1444,12 @@ toggleFullscreen = function()
 	if isFullscreenFlag then
 		savedSize = window.Size
 		savedPos = window.Position
-		tween(window, TweenInfo.new(0.36, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+		tween(window, TweenInfo.new(0.38, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 			Position = UDim2.fromOffset(16, 16),
 			Size = UDim2.fromOffset(vp.X - 32, vp.Y - 32),
 		})
 	else
-		tween(window, TweenInfo.new(0.36, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+		tween(window, TweenInfo.new(0.38, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 			Position = savedPos or UDim2.fromOffset(
 				math.floor((vp.X - Config.Width) / 2),
 				math.floor((vp.Y - Config.Height) / 2)
@@ -1431,12 +1467,61 @@ trafficFrames[3].Activated:Connect(function()
 	toggleFullscreen()
 end)
 
+-- 「打开窗口」按钮：可拖动 + 点击重开（拖动超过阈值不算点击）
+local reopenDragging = false
+local reopenMoved = false
+local reopenDragStartPos = nil
+local reopenDragStartMouse = nil
+
 reopenButton.InputBegan:Connect(function(input)
 	if not isClick(input) then
 		return
 	end
-	reopenButton.Visible = false
-	showWindow(true)
+	reopenDragging = true
+	reopenMoved = false
+	reopenDragStartPos = reopenButton.Position
+	reopenDragStartMouse = input.Position
+end)
+
+reopenButton.InputEnded:Connect(function(input)
+	if not isClick(input) or not reopenDragging then
+		return
+	end
+	reopenDragging = false
+	if not reopenMoved then
+		-- 未拖动：视为点击，重新打开窗口
+		tween(reopenScale, EASE_FAST, { Scale = 0.9 })
+		reopenButton.Visible = false
+		showWindow(true)
+	else
+		-- 拖动结束：约束在屏幕内
+		local vp = viewportSize()
+		local p = reopenButton.Position
+		local cx = vp.X * p.X.Scale + p.X.Offset
+		local cy = vp.Y * p.Y.Scale + p.Y.Offset
+		reopenButton.Position = UDim2.fromOffset(
+			math.clamp(cx, 60, vp.X - 60),
+			math.clamp(cy, 60, vp.Y - 60)
+		)
+	end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+	if not reopenDragging then
+		return
+	end
+	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+		local delta = input.Position - reopenDragStartMouse
+		if delta.Magnitude > 6 then
+			reopenMoved = true
+		end
+		reopenButton.Position = UDim2.new(
+			reopenDragStartPos.X.Scale,
+			reopenDragStartPos.X.Offset + delta.X,
+			reopenDragStartPos.Y.Scale,
+			reopenDragStartPos.Y.Offset + delta.Y
+		)
+	end
 end)
 
 --=====================================================================
@@ -1444,12 +1529,15 @@ end)
 --=====================================================================
 
 task.defer(function()
-	tween(window, TweenInfo.new(0.45, Enum.EasingStyle.Quint, Enum.EasingDirection.Out), {
+	tween(window, TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
 		GroupTransparency = 0,
+	})
+	tween(window, TweenInfo.new(0.55, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {
+		Position = UDim2.fromOffset(centerX, centerY),
 	})
 	renderRecent()
 	updateGrid()
-	task.delay(0.1, function()
+	task.delay(0.12, function()
 		updateGrid()
 		updateRecentGrid()
 	end)
