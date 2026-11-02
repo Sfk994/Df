@@ -431,7 +431,7 @@ local selectFolder = function() end -- 内容区定义后赋值
 
 local function refreshHeader()
 	if titleLabel and selectedIndex then
-		titleLabel.Text = navRows[selectedIndex].label.Text
+		titleLabel.Text = navRows[selectedIndex].name
 	end
 	if backBtn then
 		backBtn.TextTransparency = (historyIndex > 1) and 0.45 or 0.72
@@ -452,7 +452,7 @@ local function applySelection(index)
 	end
 	refreshHeader()
 	if selectFolder then
-		selectFolder(navRows[index].label.Text)
+		selectFolder(navRows[index].name)
 	end
 end
 
@@ -519,7 +519,7 @@ for _, def in ipairs(NAV) do
 			Parent = row,
 		})
 
-		local entry = { row = row, label = label, setColor = setIconColor }
+		local entry = { row = row, label = label, name = def.name, setColor = setIconColor }
 		navRows[#navRows + 1] = entry
 
 		row.InputBegan:Connect(function(input)
@@ -563,8 +563,9 @@ titleLabel = new("TextLabel", {
 	TextColor3 = C.text,
 	TextTransparency = 0.2,
 	TextXAlignment = Enum.TextXAlignment.Left,
+	TextYAlignment = Enum.TextYAlignment.Center,
 	Position = UDim2.fromOffset(74, 0),
-	Size = UDim2.new(1, -90, 1, 0),
+	Size = UDim2.new(1, -90, 0, Config.HeaderHeight),
 	BackgroundTransparency = 1,
 	ZIndex = 12,
 	Parent = content,
@@ -746,7 +747,7 @@ new("TextLabel", {
 	TextColor3 = C.dim,
 	TextXAlignment = Enum.TextXAlignment.Left,
 	Position = UDim2.fromOffset(18, 0),
-	Size = UDim2.new(1, -320, 1, 0),
+	Size = UDim2.new(1, -226, 1, 0),
 	BackgroundTransparency = 1,
 	Parent = head,
 })
@@ -756,8 +757,8 @@ new("TextLabel", {
 	Font = Enum.Font.GothamMedium,
 	TextColor3 = C.dim,
 	TextXAlignment = Enum.TextXAlignment.Right,
-	Position = UDim2.new(1, -140, 0, 0),
-	Size = UDim2.fromOffset(130, 30),
+	Position = UDim2.new(1, -196, 0, 0),
+	Size = UDim2.fromOffset(106, 30),
 	BackgroundTransparency = 1,
 	Parent = head,
 })
@@ -767,22 +768,24 @@ new("TextLabel", {
 	Font = Enum.Font.GothamMedium,
 	TextColor3 = C.dim,
 	TextXAlignment = Enum.TextXAlignment.Right,
-	Position = UDim2.new(1, -80, 0, 0),
-	Size = UDim2.fromOffset(64, 30),
+	Position = UDim2.new(1, -84, 0, 0),
+	Size = UDim2.fromOffset(68, 30),
 	BackgroundTransparency = 1,
 	Parent = head,
 })
 
-local statusLabel = new("TextLabel", {
+local statusLabel = new("TextButton", {
 	Name = "Status",
 	Text = "",
 	TextSize = 12,
 	Font = Enum.Font.Gotham,
 	TextColor3 = C.dim,
 	TextXAlignment = Enum.TextXAlignment.Left,
+	TextYAlignment = Enum.TextYAlignment.Center,
 	Position = UDim2.fromOffset(20, 0),
 	Size = UDim2.new(1, -40, 0, 28),
 	BackgroundTransparency = 1,
+	AutoButtonColor = false,
 	LayoutOrder = 2,
 	ZIndex = 12,
 	Parent = fileArea,
@@ -828,6 +831,7 @@ local function addFileRow(item, layoutOrder)
 		ZIndex = 12,
 		Parent = fileArea,
 	})
+	round(row, 6)
 
 	-- 文件图标（Frame 拼绘的小文档）
 	local ic = new("Frame", {
@@ -871,7 +875,7 @@ local function addFileRow(item, layoutOrder)
 		TextXAlignment = Enum.TextXAlignment.Left,
 		TextTruncate = Enum.TextTruncate.AtEnd,
 		Position = UDim2.fromOffset(42, 0),
-		Size = UDim2.new(1, -342, 1, 0),
+		Size = UDim2.new(1, -244, 1, 0),
 		BackgroundTransparency = 1,
 		ZIndex = 13,
 		Parent = row,
@@ -883,8 +887,8 @@ local function addFileRow(item, layoutOrder)
 		Font = Enum.Font.Gotham,
 		TextColor3 = C.dim,
 		TextXAlignment = Enum.TextXAlignment.Right,
-		Position = UDim2.new(1, -140, 0, 0),
-		Size = UDim2.fromOffset(130, 34),
+		Position = UDim2.new(1, -196, 0, 0),
+		Size = UDim2.fromOffset(106, 34),
 		BackgroundTransparency = 1,
 		ZIndex = 13,
 		Parent = row,
@@ -896,8 +900,8 @@ local function addFileRow(item, layoutOrder)
 		Font = Enum.Font.Gotham,
 		TextColor3 = C.dim,
 		TextXAlignment = Enum.TextXAlignment.Right,
-		Position = UDim2.new(1, -80, 0, 0),
-		Size = UDim2.fromOffset(64, 34),
+		Position = UDim2.new(1, -84, 0, 0),
+		Size = UDim2.fromOffset(68, 34),
 		BackgroundTransparency = 1,
 		ZIndex = 13,
 		Parent = row,
@@ -952,7 +956,15 @@ local function loadFileList()
 			return HttpService:JSONDecode(game:HttpGet(REPO_API))
 		end)
 		if not ok or type(data) ~= "table" then
-			statusLabel.Text = "加载失败：无法访问 GitHub（可能被限流），请稍后再试"
+			local err = tostring(data)
+			if string.find(err, "not enabled", 1, true) or string.find(err, "HttpEnabled", 1, true) then
+				statusLabel.Text = "加载失败：此游戏未开启 HTTP 请求（HttpService），请在游戏设置中启用后重试"
+			elseif string.find(err, "429", 1, true) or string.find(err, "403", 1, true) then
+				statusLabel.Text = "加载失败：GitHub 限流中，点此重试"
+			else
+				statusLabel.Text = "加载失败：" .. err .. "（点此重试）"
+			end
+			filesLoaded = false -- 允许重试
 			return
 		end
 
@@ -972,34 +984,62 @@ local function loadFileList()
 			return
 		end
 
+		statusLabel.Visible = false
+
 		-- 先渲染名称 + 大小
 		for i, item in ipairs(files) do
 			addFileRow(item, i + 2)
 		end
 
-		-- 并行获取每个文件的最近提交时间（更新时间）
-		local pending = #files
+		-- 限并发获取每个文件的最近提交时间（更新时间），避免触发 GitHub 限流
+		local CONCURRENCY = 3
+		local queue = {}
 		for i, item in ipairs(files) do
-			task.spawn(function()
-				local t = nil
-				pcall(function()
-					local url = "https://api.github.com/repos/Sfk994/Df/commits?path="
-						.. HttpService:UrlEncode(item.path)
-						.. "&per_page=1"
-					local j = HttpService:JSONDecode(game:HttpGet(url))
-					if j and j[1] and j[1].commit and j[1].commit.committer then
-						t = j[1].commit.committer.date
-					end
-				end)
-				fileRows[i].timeLabel.Text = formatTime(t)
-				pending = pending - 1
-				if pending == 0 then
-					statusLabel.Visible = false
+			queue[#queue + 1] = { index = i, path = item.path }
+		end
+		local nextIndex = 0
+		local pending = #queue
+
+		local function fetchTime()
+			nextIndex = nextIndex + 1
+			local job = queue[nextIndex]
+			if not job then
+				return
+			end
+			local t = nil
+			pcall(function()
+				local url = "https://api.github.com/repos/Sfk994/Df/commits?path="
+					.. HttpService:UrlEncode(job.path)
+					.. "&per_page=1"
+				local j = HttpService:JSONDecode(game:HttpGet(url))
+				if j and j[1] and j[1].commit and j[1].commit.committer then
+					t = j[1].commit.committer.date
 				end
 			end)
+			local entry = fileRows[job.index]
+			if entry and entry.timeLabel then
+				entry.timeLabel.Text = formatTime(t)
+			end
+			pending = pending - 1
+			if pending > 0 then
+				task.spawn(fetchTime)
+			end
+		end
+		for _ = 1, math.min(CONCURRENCY, #queue) do
+			task.spawn(fetchTime)
 		end
 	end)
 end
+
+-- 加载失败后点击状态文字重试
+statusLabel.InputBegan:Connect(function(input)
+	if not isClick(input) then
+		return
+	end
+	if not filesLoaded then
+		loadFileList()
+	end
+end)
 
 -- 选中目录时切换内容视图
 selectFolder = function(name)
@@ -1013,11 +1053,12 @@ selectFolder = function(name)
 	else
 		gridArea.Visible = true
 		fileArea.Visible = false
+		task.defer(updateGrid)
 	end
 end
 
 -- 初始视图与默认选中项同步
-selectFolder(navRows[selectedIndex].label.Text)
+selectFolder(navRows[selectedIndex].name)
 
 --=====================================================================
 -- 右下角缩放手柄
