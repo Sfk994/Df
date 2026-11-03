@@ -76,7 +76,7 @@ local SpringSpec = {
 }
 
 local EASE_OUT = TweenInfo.new(0.24, Enum.EasingStyle.Quint, Enum.EasingDirection.Out)
-local EASE_PRESS = TweenInfo.new(0.1, Enum.EasingStyle.Out, Enum.EasingDirection.Out)
+local EASE_PRESS = TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 
 ---------------------------------------------------------------------------
 -- 02 · 基础工具
