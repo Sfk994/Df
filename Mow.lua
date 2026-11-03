@@ -8,6 +8,8 @@
 	  · 内容区标题随所选目录同步 + 4 个空白应用占位
 	  · 返回/前进箭头 = 目录选择历史的前后切换
 	  · 占位图标随窗口宽度自动排列：宽 → 一行 4 个(4x1)，窄 → 一列 4 个(1x4)
+	  · 玩家信息：在线玩家列表 → 详情页（游戏名/账户名/注册日期/账号年龄/坐标/距离/头像/立绘）
+	          并可一键传送到该玩家（客户端 PivotTo，受游戏反作弊限制）
 	  · 红/黄键 = 关闭（变成“打开窗口”按钮），绿键 / 双击顶部 = 全屏
 	  · 右下角缩放，最小 380x320
 
@@ -169,7 +171,7 @@ local body = new("Frame", {
 	Name = "Body",
 	Size = UDim2.fromScale(1, 1),
 	BackgroundColor3 = Color3.fromRGB(255, 255, 255),
-	BackgroundTransparency = 0.5, -- 关键：让游戏世界透出，形成毛玻璃感
+	BackgroundTransparency = 0.06, -- 近实心，不直接透出游戏世界，靠渐变+高光营造磨砂感
 	BorderSizePixel = 0,
 	ClipsDescendants = true,
 	ZIndex = 8,
@@ -372,6 +374,7 @@ local NAV = {
 	{ abbr = "Pr", name = "进行中项目" },
 	{ abbr = "Dv", name = "Dev" },
 	{ header = "位置" },
+	{ abbr = "Pl", name = "玩家信息" },
 	{ abbr = "iC", name = "iCloud 云盘" },
 }
 
@@ -405,15 +408,24 @@ local backBtn
 local fwdBtn
 local selectFolder = function() end -- 内容区定义后赋值
 
+-- 玩家信息：详情页状态（内容区定义后赋值）
+local playerDetailOpen = false
+local playerDetailTitle = nil
+local closePlayerDetail
+
 local function refreshHeader()
 	if titleLabel and selectedIndex then
-		titleLabel.Text = navRows[selectedIndex].name
+		if playerDetailOpen and playerDetailTitle then
+			titleLabel.Text = playerDetailTitle
+		else
+			titleLabel.Text = navRows[selectedIndex].name
+		end
 	end
 	if backBtn then
-		backBtn.TextTransparency = (historyIndex > 1) and 0.45 or 0.72
+		backBtn.TextTransparency = ((historyIndex > 1) or playerDetailOpen) and 0.45 or 0.72
 	end
 	if fwdBtn then
-		fwdBtn.TextTransparency = (historyIndex < #history) and 0.45 or 0.72
+		fwdBtn.TextTransparency = ((not playerDetailOpen) and historyIndex < #history) and 0.45 or 0.72
 	end
 end
 
@@ -522,7 +534,7 @@ local content = new("Frame", {
 	Position = UDim2.fromOffset(Config.SidebarWidth + 18, 10),
 	Size = UDim2.new(1, -(Config.SidebarWidth + 28), 1, -20),
 	BackgroundColor3 = C.content,
-	BackgroundTransparency = 0.35,
+	BackgroundTransparency = 0.22,
 	BorderSizePixel = 0,
 	ZIndex = 10,
 	Parent = body,
@@ -580,12 +592,19 @@ fwdBtn = new("TextButton", {
 })
 
 backBtn.Activated:Connect(function()
+	if playerDetailOpen and closePlayerDetail then
+		closePlayerDetail()
+		return
+	end
 	if historyIndex > 1 then
 		historyIndex = historyIndex - 1
 		applySelection(history[historyIndex])
 	end
 end)
 fwdBtn.Activated:Connect(function()
+	if playerDetailOpen then
+		return
+	end
 	if historyIndex < #history then
 		historyIndex = historyIndex + 1
 		applySelection(history[historyIndex])
@@ -1185,6 +1204,801 @@ recordRecent = function(name)
 	renderRecent()
 end
 
+--=====================================================================
+-- 玩家信息：在线玩家列表
+--=====================================================================
+
+local playerArea = new("ScrollingFrame", {
+	Name = "PlayerArea",
+	Position = UDim2.new(0, 0, 0, Config.HeaderHeight),
+	Size = UDim2.new(1, 0, 1, -Config.HeaderHeight),
+	BackgroundTransparency = 1,
+	BorderSizePixel = 0,
+	ScrollBarThickness = 4,
+	ScrollBarImageTransparency = 0.6,
+	CanvasSize = UDim2.new(),
+	AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	ScrollingDirection = Enum.ScrollingDirection.Y,
+	Visible = false,
+	ZIndex = 11,
+	Parent = content,
+})
+new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Parent = playerArea })
+
+-- 列表头：玩家 | 距离 | 状态
+local playerHead = new("Frame", {
+	Name = "Head",
+	Size = UDim2.new(1, 0, 0, 30),
+	BackgroundTransparency = 1,
+	LayoutOrder = 1,
+	ZIndex = 12,
+	Parent = playerArea,
+})
+local function playerHeadLabel(text, position, size, align)
+	return new("TextLabel", {
+		Text = text,
+		TextSize = 11,
+		Font = Enum.Font.GothamMedium,
+		TextColor3 = C.dim,
+		TextXAlignment = align,
+		TextYAlignment = Enum.TextYAlignment.Center,
+		Position = position,
+		Size = size,
+		BackgroundTransparency = 1,
+		ZIndex = 13,
+		Parent = playerHead,
+	})
+end
+playerHeadLabel("玩家", UDim2.fromOffset(18, 0), UDim2.new(1, -214, 1, 0), Enum.TextXAlignment.Left)
+local playerHeadDist = playerHeadLabel("距离", UDim2.new(1, -196, 0, 0), UDim2.fromOffset(100, 30), Enum.TextXAlignment.Right)
+local playerHeadState = playerHeadLabel("状态", UDim2.new(1, -96, 0, 0), UDim2.fromOffset(78, 30), Enum.TextXAlignment.Right)
+
+-- 头像缓存与加载（GetUserThumbnailAsync 会阻塞，放 task.spawn）
+local thumbCache = {}
+
+local function userThumb(userId, kind, size)
+	local key = tostring(userId) .. "_" .. kind.Name .. "_" .. size.Name
+	local cached = thumbCache[key]
+	if cached ~= nil then
+		if cached == false then
+			return nil
+		end
+		return cached
+	end
+	local ok, url = pcall(function()
+		return Players:GetUserThumbnailAsync(userId, kind, size)
+	end)
+	if ok and type(url) == "string" and url ~= "" then
+		thumbCache[key] = url
+		return url
+	end
+	thumbCache[key] = false
+	return nil
+end
+
+local function makeAvatar(parent, sizePx, x, y, name)
+	local holder = new("Frame", {
+		Name = "Avatar",
+		Position = UDim2.fromOffset(x, y),
+		Size = UDim2.fromOffset(sizePx, sizePx),
+		BackgroundColor3 = Color3.fromRGB(233, 237, 245),
+		BorderSizePixel = 0,
+		ClipsDescendants = true,
+		ZIndex = 13,
+		Parent = parent,
+	})
+	round(holder, math.floor(sizePx / 2))
+	local img = new("ImageLabel", {
+		Name = "Image",
+		Size = UDim2.fromScale(1, 1),
+		BackgroundTransparency = 1,
+		Image = "",
+		ScaleType = Enum.ScaleType.Crop,
+		ZIndex = 14,
+		Parent = holder,
+	})
+	new("UIStroke", {
+		Color = Color3.fromRGB(0, 0, 0),
+		Transparency = 0.92,
+		Thickness = 1,
+		Parent = holder,
+	})
+	local initial = new("TextLabel", {
+		Name = "Initial",
+		Text = string.upper(string.sub(name or "", 1, 1)),
+		TextSize = math.floor(sizePx * 0.42),
+		Font = Enum.Font.GothamBold,
+		TextColor3 = Color3.fromRGB(122, 127, 138),
+		BackgroundTransparency = 1,
+		Size = UDim2.fromScale(1, 1),
+		ZIndex = 14,
+		Parent = holder,
+	})
+	return holder, img, initial
+end
+
+local function loadAvatar(img, initial, plr, kind, size, delay)
+	task.spawn(function()
+		if delay and delay > 0 then
+			task.wait(delay)
+		end
+		local url = userThumb(plr.UserId, kind, size)
+		if url and img.Parent then
+			img.Image = url
+			initial.Visible = false
+		end
+	end)
+end
+
+local function rootOf(plr)
+	local char = plr.Character
+	if not char then
+		return nil
+	end
+	return char:FindFirstChild("HumanoidRootPart")
+end
+
+local function positionOf(plr)
+	local root = rootOf(plr)
+	if root then
+		return root.Position
+	end
+	return nil
+end
+
+local function distanceTo(plr)
+	if plr == player then
+		return 0
+	end
+	local a = rootOf(player)
+	local b = rootOf(plr)
+	if a and b then
+		return math.floor((a.Position - b.Position).Magnitude + 0.5)
+	end
+	return nil
+end
+
+--=====================================================================
+-- 玩家信息：详情页
+--=====================================================================
+
+local detailArea = new("ScrollingFrame", {
+	Name = "PlayerDetail",
+	Position = UDim2.new(0, 0, 0, Config.HeaderHeight),
+	Size = UDim2.new(1, 0, 1, -Config.HeaderHeight),
+	BackgroundTransparency = 1,
+	BorderSizePixel = 0,
+	ScrollBarThickness = 4,
+	ScrollBarImageTransparency = 0.6,
+	CanvasSize = UDim2.new(),
+	AutomaticCanvasSize = Enum.AutomaticSize.Y,
+	ScrollingDirection = Enum.ScrollingDirection.Y,
+	Visible = false,
+	ZIndex = 11,
+	Parent = content,
+})
+
+local detailInner = new("Frame", {
+	Name = "Inner",
+	Position = UDim2.fromOffset(16, 8),
+	Size = UDim2.new(1, -32, 0, 0),
+	BackgroundTransparency = 1,
+	AutomaticSize = Enum.AutomaticSize.Y,
+	ZIndex = 12,
+	Parent = detailArea,
+})
+new("UIListLayout", {
+	SortOrder = Enum.SortOrder.LayoutOrder,
+	Padding = UDim2.fromOffset(0, 10),
+	Parent = detailInner,
+})
+
+-- 顶部：头像 + 游戏名 + 账户名
+local dHead = new("Frame", {
+	Name = "Head",
+	Size = UDim2.new(1, 0, 0, 56),
+	BackgroundTransparency = 1,
+	LayoutOrder = 1,
+	ZIndex = 12,
+	Parent = detailInner,
+})
+local dFaceHolder, dFaceImage, dFaceInitial = makeAvatar(dHead, 56, 0, 0, "")
+local dName = new("TextLabel", {
+	Name = "DisplayName",
+	Text = "",
+	TextSize = 17,
+	Font = Enum.Font.GothamSemibold,
+	TextColor3 = C.text,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	TextTruncate = Enum.TextTruncate.AtEnd,
+	Position = UDim2.fromOffset(68, 4),
+	Size = UDim2.new(1, -68, 0, 22),
+	BackgroundTransparency = 1,
+	ZIndex = 13,
+	Parent = dHead,
+})
+local dSub = new("TextLabel", {
+	Name = "AccountName",
+	Text = "",
+	TextSize = 12,
+	Font = Enum.Font.Gotham,
+	TextColor3 = C.dim,
+	TextXAlignment = Enum.TextXAlignment.Left,
+	TextTruncate = Enum.TextTruncate.AtEnd,
+	Position = UDim2.fromOffset(68, 29),
+	Size = UDim2.new(1, -68, 0, 18),
+	BackgroundTransparency = 1,
+	ZIndex = 13,
+	Parent = dHead,
+})
+
+-- 立绘卡片
+local dHero = new("Frame", {
+	Name = "Hero",
+	Size = UDim2.new(1, 0, 0, 200),
+	BackgroundColor3 = Color3.fromRGB(246, 249, 255),
+	BorderSizePixel = 0,
+	ClipsDescendants = true,
+	LayoutOrder = 2,
+	ZIndex = 12,
+	Parent = detailInner,
+})
+round(dHero, 14)
+new("UIGradient", {
+	Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, Color3.fromRGB(249, 251, 255)),
+		ColorSequenceKeypoint.new(1, Color3.fromRGB(229, 237, 252)),
+	}),
+	Rotation = 90,
+	Parent = dHero,
+})
+new("UIStroke", {
+	Color = Color3.fromRGB(0, 0, 0),
+	Transparency = 0.93,
+	Thickness = 1,
+	Parent = dHero,
+})
+local dBody = new("ImageLabel", {
+	Name = "Body",
+	Position = UDim2.fromOffset(14, 6),
+	Size = UDim2.new(1, -28, 1, -12),
+	BackgroundTransparency = 1,
+	Image = "",
+	ScaleType = Enum.ScaleType.Fit,
+	ZIndex = 13,
+	Parent = dHero,
+})
+local dPill = new("TextLabel", {
+	Name = "DistancePill",
+	Text = "",
+	TextSize = 11,
+	Font = Enum.Font.GothamMedium,
+	TextColor3 = Color3.fromRGB(58, 74, 104),
+	BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+	BackgroundTransparency = 0.18,
+	TextXAlignment = Enum.TextXAlignment.Center,
+	TextYAlignment = Enum.TextYAlignment.Center,
+	Position = UDim2.new(0, 12, 1, -36),
+	Size = UDim2.fromOffset(116, 24),
+	AutomaticSize = Enum.AutomaticSize.X,
+	ZIndex = 15,
+	Parent = dHero,
+})
+round(dPill, 12)
+new("UIPadding", {
+	PaddingLeft = UDim.new(0, 10),
+	PaddingRight = UDim.new(0, 10),
+	Parent = dPill,
+})
+new("UIStroke", {
+	Color = Color3.fromRGB(0, 0, 0),
+	Transparency = 0.94,
+	Thickness = 1,
+	Parent = dPill,
+})
+
+-- 信息卡片
+local dCard = new("Frame", {
+	Name = "Info",
+	Size = UDim2.new(1, 0, 0, 0),
+	BackgroundColor3 = Color3.fromRGB(255, 255, 255),
+	BackgroundTransparency = 0.35,
+	BorderSizePixel = 0,
+	AutomaticSize = Enum.AutomaticSize.Y,
+	LayoutOrder = 3,
+	ZIndex = 12,
+	Parent = detailInner,
+})
+round(dCard, 12)
+new("UIStroke", {
+	Color = Color3.fromRGB(0, 0, 0),
+	Transparency = 0.93,
+	Thickness = 1,
+	Parent = dCard,
+})
+new("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder, Parent = dCard })
+
+local infoValues = {}
+local function addInfoRow(labelText, order, isLast)
+	local row = new("Frame", {
+		Name = "Row" .. order,
+		Size = UDim2.new(1, 0, 0, 38),
+		BackgroundTransparency = 1,
+		LayoutOrder = order,
+		ZIndex = 13,
+		Parent = dCard,
+	})
+	new("TextLabel", {
+		Text = labelText,
+		TextSize = 12,
+		Font = Enum.Font.Gotham,
+		TextColor3 = C.dim,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextYAlignment = Enum.TextYAlignment.Center,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Position = UDim2.fromOffset(14, 0),
+		Size = UDim2.new(0.5, -14, 1, 0),
+		BackgroundTransparency = 1,
+		ZIndex = 14,
+		Parent = row,
+	})
+	local value = new("TextLabel", {
+		Text = "",
+		TextSize = 12,
+		Font = Enum.Font.Gotham,
+		TextColor3 = C.text,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		TextYAlignment = Enum.TextYAlignment.Center,
+		Position = UDim2.new(0.5, 0, 0, 0),
+		Size = UDim2.new(0.5, -14, 1, 0),
+		BackgroundTransparency = 1,
+		ZIndex = 14,
+		Parent = row,
+	})
+	if not isLast then
+		new("Frame", {
+			Position = UDim2.new(0, 14, 1, -1),
+			Size = UDim2.new(1, -28, 0, 1),
+			BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+			BackgroundTransparency = 0.94,
+			BorderSizePixel = 0,
+			ZIndex = 14,
+			Parent = row,
+		})
+	end
+	return value
+end
+
+infoValues.created = addInfoRow("账号创建时间", 1, false)
+infoValues.age = addInfoRow("账号存在时间", 2, false)
+infoValues.pos = addInfoRow("坐标 (X, Y, Z)", 3, false)
+infoValues.dist = addInfoRow("与你的距离", 4, true)
+
+-- 传送按钮
+local tpButton = new("TextButton", {
+	Name = "Teleport",
+	Text = "传送到该玩家",
+	TextSize = 13,
+	Font = Enum.Font.GothamSemibold,
+	TextColor3 = Color3.new(1, 1, 1),
+	BackgroundColor3 = C.blue,
+	BorderSizePixel = 0,
+	AutoButtonColor = false,
+	Size = UDim2.new(1, 0, 0, 42),
+	LayoutOrder = 4,
+	ZIndex = 13,
+	Parent = detailInner,
+})
+round(tpButton, 10)
+
+-- 轻提示
+local toast = new("TextLabel", {
+	Name = "Toast",
+	AnchorPoint = Vector2.new(0.5, 0),
+	Position = UDim2.new(0.5, 0, 1, -26),
+	Size = UDim2.fromOffset(60, 32),
+	AutomaticSize = Enum.AutomaticSize.X,
+	BackgroundColor3 = Color3.fromRGB(28, 28, 32),
+	BackgroundTransparency = 1,
+	Text = "",
+	TextSize = 12,
+	Font = Enum.Font.GothamMedium,
+	TextColor3 = Color3.new(1, 1, 1),
+	TextTransparency = 1,
+	TextXAlignment = Enum.TextXAlignment.Center,
+	TextYAlignment = Enum.TextYAlignment.Center,
+	Visible = false,
+	ZIndex = 55,
+	Parent = body,
+})
+round(toast, 9)
+new("UIPadding", {
+	PaddingLeft = UDim.new(0, 14),
+	PaddingRight = UDim.new(0, 14),
+	Parent = toast,
+})
+
+local toastToken = 0
+local toastTween = nil
+local function showToast(message)
+	toastToken = toastToken + 1
+	local token = toastToken
+	if toastTween then
+		toastTween:Cancel()
+		toastTween = nil
+	end
+	toast.Text = message
+	toast.Visible = true
+	toast.BackgroundTransparency = 0.12
+	toast.TextTransparency = 0
+	task.delay(1.6, function()
+		if toastToken ~= token then
+			return
+		end
+		toastTween = tween(toast, EASE_FAST, { BackgroundTransparency = 1, TextTransparency = 1 })
+		task.delay(0.22, function()
+			if toastToken == token then
+				toast.Visible = false
+			end
+		end)
+	end)
+end
+
+-- 日期 / 账号年龄
+local function formatCreatedDate(accountAge)
+	local t = os.date("*t", os.time() - math.max(0, math.floor(accountAge)) * 86400)
+	return string.format("%d年%d月%d日", t.year, t.month, t.day)
+end
+
+local function formatAccountAge(accountAge)
+	local days = math.max(0, math.floor(accountAge))
+	local years = math.floor(days / 365)
+	local months = math.floor((days % 365) / 30)
+	if years > 0 then
+		if months > 0 then
+			return string.format("%d 年 %d 个月", years, months)
+		end
+		return string.format("%d 年", years)
+	elseif months > 0 then
+		return string.format("%d 个月", months)
+	end
+	return string.format("%d 天", days)
+end
+
+local detailPlayer = nil
+
+local function refreshDetailDynamic()
+	if not detailPlayer then
+		return
+	end
+	if detailPlayer ~= player and not detailPlayer.Parent then
+		infoValues.pos.Text = "已离开"
+		infoValues.dist.Text = "—"
+		dPill.Text = "已离开"
+		return
+	end
+	local isSelf = (detailPlayer == player)
+	local pos = positionOf(detailPlayer)
+	if pos then
+		infoValues.pos.Text = string.format("%d, %d, %d", math.round(pos.X), math.round(pos.Y), math.round(pos.Z))
+	else
+		infoValues.pos.Text = "不在场景中"
+	end
+	local d = distanceTo(detailPlayer)
+	if isSelf then
+		infoValues.dist.Text = "—"
+		dPill.Text = "你的位置"
+	elseif d then
+		infoValues.dist.Text = string.format("%d studs", d)
+		dPill.Text = string.format("距离 %d studs", d)
+	else
+		infoValues.dist.Text = "—"
+		dPill.Text = "距离未知"
+	end
+end
+
+local function openPlayerDetail(plr)
+	detailPlayer = plr
+	playerDetailOpen = true
+	playerDetailTitle = plr.DisplayName
+	playerArea.Visible = false
+	detailArea.Visible = true
+	detailArea.CanvasPosition = Vector2.new(0, 0)
+	refreshHeader()
+
+	dName.Text = plr.DisplayName
+	dSub.Text = string.format("@%s  ·  ID %d", plr.Name, plr.UserId)
+	dFaceInitial.Text = string.upper(string.sub(plr.DisplayName, 1, 1))
+	dFaceInitial.Visible = true
+	dFaceImage.Image = ""
+	dBody.Image = ""
+	infoValues.created.Text = formatCreatedDate(plr.AccountAge)
+	infoValues.age.Text = formatAccountAge(plr.AccountAge)
+	refreshDetailDynamic()
+
+	if plr == player then
+		tpButton.Text = "这是你自己"
+		tpButton.BackgroundColor3 = Color3.fromRGB(233, 236, 242)
+		tpButton.TextColor3 = Color3.fromRGB(154, 154, 160)
+	else
+		tpButton.Text = "传送到该玩家"
+		tpButton.BackgroundColor3 = C.blue
+		tpButton.TextColor3 = Color3.new(1, 1, 1)
+	end
+
+	task.spawn(function()
+		local head = userThumb(plr.UserId, Enum.ThumbnailType.AvatarBust, Enum.ThumbnailSize.Size150x150)
+		if head and dFaceImage.Parent and detailPlayer == plr then
+			dFaceImage.Image = head
+			dFaceInitial.Visible = false
+		end
+		local full = userThumb(plr.UserId, Enum.ThumbnailType.AvatarFullBody, Enum.ThumbnailSize.Size420x420)
+		if full and dBody.Parent and detailPlayer == plr then
+			dBody.Image = full
+		end
+	end)
+end
+
+closePlayerDetail = function()
+	playerDetailOpen = false
+	playerDetailTitle = nil
+	detailPlayer = nil
+	detailArea.Visible = false
+	if navRows[selectedIndex] and navRows[selectedIndex].name == "玩家信息" then
+		playerArea.Visible = true
+	end
+	refreshHeader()
+end
+
+local function teleportToPlayer(plr)
+	if plr == player then
+		return
+	end
+	if not plr.Parent then
+		showToast("玩家已离开")
+		return
+	end
+	local char = player.Character
+	local myRoot = char and char:FindFirstChild("HumanoidRootPart")
+	local targetRoot = rootOf(plr)
+	if not myRoot or not targetRoot then
+		showToast("无法传送：你或目标不在地图中")
+		return
+	end
+	local ok, err = pcall(function()
+		char:PivotTo(targetRoot.CFrame * CFrame.new(0, 0, 3))
+	end)
+	if ok then
+		showToast("已传送到 " .. plr.DisplayName)
+	else
+		showToast("传送失败：游戏可能禁止")
+		warn("[文件管理器] 传送失败：", err)
+	end
+end
+
+tpButton.Activated:Connect(function()
+	if detailPlayer then
+		teleportToPlayer(detailPlayer)
+	end
+end)
+
+tpButton.MouseEnter:Connect(function()
+	if detailPlayer and detailPlayer ~= player and detailPlayer.Parent then
+		tpButton.BackgroundColor3 = Color3.fromRGB(0, 108, 228)
+	end
+end)
+tpButton.MouseLeave:Connect(function()
+	if detailPlayer and detailPlayer ~= player and detailPlayer.Parent then
+		tpButton.BackgroundColor3 = C.blue
+	end
+end)
+
+--=====================================================================
+-- 玩家信息：列表渲染
+--=====================================================================
+
+local playerRows = {}
+
+local function clearPlayerRows()
+	for _, entry in ipairs(playerRows) do
+		entry.row:Destroy()
+	end
+	playerRows = {}
+end
+
+local function addPlayerRow(plr, order)
+	local isSelf = (plr == player)
+	local row = new("TextButton", {
+		Name = "Player_" .. plr.Name,
+		Size = UDim2.new(1, 0, 0, 46),
+		BackgroundColor3 = C.blue,
+		BackgroundTransparency = 1,
+		BorderSizePixel = 0,
+		Text = "",
+		AutoButtonColor = false,
+		LayoutOrder = order,
+		ZIndex = 12,
+		Parent = playerArea,
+	})
+	round(row, 6)
+
+	new("Frame", {
+		Name = "Divider",
+		Position = UDim2.new(0, 16, 1, -1),
+		Size = UDim2.new(1, -32, 0, 1),
+		BackgroundColor3 = Color3.fromRGB(0, 0, 0),
+		BackgroundTransparency = 0.9,
+		BorderSizePixel = 0,
+		ZIndex = 14,
+		Parent = row,
+	})
+
+	local _, img, initial = makeAvatar(row, 28, 16, 9, plr.DisplayName)
+	loadAvatar(img, initial, plr, Enum.ThumbnailType.AvatarBust, Enum.ThumbnailSize.Size48x48, order * 0.04)
+
+	local nameLabel = new("TextLabel", {
+		Name = "Name",
+		Text = plr.DisplayName,
+		TextSize = 13,
+		Font = Enum.Font.GothamMedium,
+		TextColor3 = isSelf and C.blue or C.text,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Position = UDim2.fromOffset(52, 5),
+		Size = UDim2.new(1, -268, 0, 18),
+		BackgroundTransparency = 1,
+		ZIndex = 13,
+		Parent = row,
+	})
+	local userLabel = new("TextLabel", {
+		Name = "Account",
+		Text = "@" .. plr.Name,
+		TextSize = 11,
+		Font = Enum.Font.Gotham,
+		TextColor3 = C.dim,
+		TextXAlignment = Enum.TextXAlignment.Left,
+		TextTruncate = Enum.TextTruncate.AtEnd,
+		Position = UDim2.fromOffset(52, 23),
+		Size = UDim2.new(1, -268, 0, 15),
+		BackgroundTransparency = 1,
+		ZIndex = 13,
+		Parent = row,
+	})
+	local distLabel = new("TextLabel", {
+		Name = "Distance",
+		Text = "—",
+		TextSize = 11,
+		Font = Enum.Font.Gotham,
+		TextColor3 = C.dim,
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextYAlignment = Enum.TextYAlignment.Center,
+		Position = UDim2.new(1, -196, 0, 0),
+		Size = UDim2.fromOffset(100, 46),
+		BackgroundTransparency = 1,
+		ZIndex = 13,
+		Parent = row,
+	})
+	local stateLabel = new("TextLabel", {
+		Name = "State",
+		Text = isSelf and "本人" or "在线",
+		TextSize = 11,
+		Font = Enum.Font.Gotham,
+		TextColor3 = isSelf and C.dim or Color3.fromRGB(31, 170, 75),
+		TextXAlignment = Enum.TextXAlignment.Right,
+		TextYAlignment = Enum.TextYAlignment.Center,
+		Position = UDim2.new(1, -96, 0, 0),
+		Size = UDim2.fromOffset(78, 46),
+		BackgroundTransparency = 1,
+		ZIndex = 13,
+		Parent = row,
+	})
+
+	if not isSelf then
+		local d = distanceTo(plr)
+		if d then
+			distLabel.Text = string.format("%d studs", d)
+		end
+	end
+
+	row.Activated:Connect(function()
+		openPlayerDetail(plr)
+	end)
+
+	local entry = {
+		row = row,
+		player = plr,
+		nameLabel = nameLabel,
+		userLabel = userLabel,
+		distLabel = distLabel,
+		stateLabel = stateLabel,
+	}
+	playerRows[#playerRows + 1] = entry
+	return entry
+end
+
+-- 窄窗口：隐藏距离 / 状态列，避免名字被挤扁
+local function updatePlayerColumns()
+	local w = playerArea.AbsoluteSize.X
+	local narrow = w > 0 and w < 380
+	playerHeadDist.Visible = not narrow
+	playerHeadState.Visible = not narrow
+	for _, entry in ipairs(playerRows) do
+		entry.distLabel.Visible = not narrow
+		entry.stateLabel.Visible = not narrow
+		entry.nameLabel.Size = narrow and UDim2.new(1, -70, 0, 18) or UDim2.new(1, -268, 0, 18)
+		entry.userLabel.Size = narrow and UDim2.new(1, -70, 0, 15) or UDim2.new(1, -268, 0, 15)
+	end
+end
+
+local function renderPlayerList()
+	clearPlayerRows()
+	local list = Players:GetPlayers()
+	table.sort(list, function(a, b)
+		if a == player then
+			return true
+		end
+		if b == player then
+			return false
+		end
+		return string.lower(a.DisplayName) < string.lower(b.DisplayName)
+	end)
+	for i, plr in ipairs(list) do
+		addPlayerRow(plr, i + 1)
+	end
+	updatePlayerColumns()
+end
+
+playerArea:GetPropertyChangedSignal("AbsoluteSize"):Connect(updatePlayerColumns)
+
+-- 距离实时刷新（列表 + 详情，每 0.5s）
+task.spawn(function()
+	while true do
+		task.wait(0.5)
+		if playerArea.Visible then
+			for _, entry in ipairs(playerRows) do
+				if entry.row.Parent then
+					if entry.player == player then
+						entry.distLabel.Text = "—"
+					else
+						local d = distanceTo(entry.player)
+						entry.distLabel.Text = d and string.format("%d studs", d) or "—"
+					end
+				end
+			end
+		end
+		if playerDetailOpen and detailPlayer then
+			refreshDetailDynamic()
+		end
+	end
+end)
+
+-- 玩家加入 / 离开时刷新列表；详情页对象离开时给出提示
+Players.PlayerAdded:Connect(function()
+	task.defer(function()
+		if playerArea.Visible and not playerDetailOpen then
+			renderPlayerList()
+		end
+	end)
+end)
+
+Players.PlayerRemoving:Connect(function(plr)
+	if playerDetailOpen and detailPlayer == plr then
+		dSub.Text = string.format("@%s  ·  已离开", plr.Name)
+		infoValues.pos.Text = "已离开"
+		infoValues.dist.Text = "—"
+		dPill.Text = "已离开"
+		tpButton.Text = "玩家已离开"
+		tpButton.BackgroundColor3 = Color3.fromRGB(233, 236, 242)
+		tpButton.TextColor3 = Color3.fromRGB(154, 154, 160)
+	end
+	task.defer(function()
+		if playerArea.Visible and not playerDetailOpen then
+			renderPlayerList()
+		end
+	end)
+end)
+
 local function updateRecentGrid()
 	local w = recentGrid.AbsoluteSize.X
 	if w <= 0 then
@@ -1198,9 +2012,14 @@ end
 
 -- 选中目录时切换内容视图
 selectFolder = function(name)
+	if playerDetailOpen then
+		closePlayerDetail()
+	end
 	if name == "iCloud 云盘" then
 		gridArea.Visible = false
 		recentGridArea.Visible = false
+		playerArea.Visible = false
+		detailArea.Visible = false
 		fileArea.Visible = true
 		if not filesLoaded then
 			filesLoaded = true
@@ -1210,11 +2029,25 @@ selectFolder = function(name)
 		gridArea.Visible = false
 		recentGridArea.Visible = true
 		fileArea.Visible = false
+		playerArea.Visible = false
+		detailArea.Visible = false
 		task.defer(updateRecentGrid)
+	elseif name == "玩家信息" then
+		gridArea.Visible = false
+		recentGridArea.Visible = false
+		fileArea.Visible = false
+		detailArea.Visible = false
+		playerArea.Visible = true
+		renderPlayerList()
+		task.defer(function()
+			playerArea.CanvasPosition = Vector2.new(0, 0)
+		end)
 	else
 		gridArea.Visible = true
 		recentGridArea.Visible = false
 		fileArea.Visible = false
+		playerArea.Visible = false
+		detailArea.Visible = false
 		task.defer(updateGrid)
 	end
 end
@@ -1260,7 +2093,7 @@ local reopenButton = new("Frame", {
 	Name = "Reopen",
 	AnchorPoint = Vector2.new(0.5, 0.5),
 	Position = UDim2.fromScale(0.5, 0.5),
-	Size = UDim2.fromOffset(168, 44),
+	Size = UDim2.fromOffset(120, 34),
 	BackgroundColor3 = Color3.fromRGB(255, 255, 255),
 	BackgroundTransparency = 0.1,
 	BorderSizePixel = 0,
@@ -1269,7 +2102,7 @@ local reopenButton = new("Frame", {
 	ZIndex = 60,
 	Parent = gui,
 })
-round(reopenButton, 12)
+round(reopenButton, 10)
 new("UIStroke", {
 	Color = Color3.fromRGB(0, 0, 0),
 	Transparency = 0.86,
@@ -1278,7 +2111,7 @@ new("UIStroke", {
 })
 new("TextLabel", {
 	Text = "打开窗口",
-	TextSize = 13,
+	TextSize = 12.5,
 	Font = Enum.Font.GothamMedium,
 	TextColor3 = Color3.fromRGB(30, 30, 30),
 	Size = UDim2.fromScale(1, 1),
@@ -1365,11 +2198,11 @@ UserInputService.InputChanged:Connect(function(input)
 	end
 end)
 
--- 双击顶部拖动条 → 全屏（两次点击位置接近才算双击，避免拖动被误判）
+-- 双击顶部拖动条 → 全屏（仅鼠标双击；触屏拖动不触发，避免误判）
 local lastClick = 0
 local lastClickPos = nil
 dragStrip.InputBegan:Connect(function(input)
-	if not isClick(input) then
+	if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
 		return
 	end
 	local now = tick()
